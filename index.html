@@ -1935,8 +1935,8 @@ function draw(){
 
 let lastTime=0
 function loop(ts){
-  const dt=ts-lastTime;lastTime=ts
-  if(dt<500){update();draw()}
+  const dt=ts-lastTime
+  if(dt>=16.67){lastTime=ts-(dt%16.67);update();draw()}
   requestAnimationFrame(loop)
 }
 requestAnimationFrame(loop)
