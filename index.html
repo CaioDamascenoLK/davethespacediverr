@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Dave: Space Diver</title>
+<title>Dave: Space Diver - Bullet Hell</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box }
 body {
@@ -19,24 +19,16 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: bloc
 #hint { color: #334; font-size: 11px; margin-top: 6px; letter-spacing: 1px; }
 </style>
 </head>
-<link rel="shortcut icon" href="./dave.png" type="image/x-icon">
 <body>
 <audio id="menuAudio" loop preload="auto"><source src="./8-bit-blitz.mp3" type="audio/mpeg"></audio>
 <audio id="gameAudio" loop preload="auto"><source src="./03 Shooter (Space).mp3" type="audio/mpeg"></audio>
 <audio id="bossAudio" loop preload="auto"><source src="./872882_Undertale-Asgore-Theme.mp3" type="audio/mpeg"></audio>
 <canvas id="c"></canvas>
-<div id="hint">A/D = MOVER · SPACE = JETPACK · F = ATIRAR · H = CURA · FASE 6 SCROLL HORIZONTAL → BOSS</div>
+<div id="hint">A/D = MOVER · SPACE = JETPACK · F = ATIRAR · H = CURA</div>
 <script>
 // ====================================================
-// DAVE: SPACE DIVER — PR1 v2
-// ====================================================
-// ✓ Fase 1-5: vertical/normal
-// ✓ Fase 6: scroll horizontal estilo Super Mario Bros
-//            com checkpoint funcional antes da arena
-// ✓ Fase 7 (arena): boss fight com câmera fixa
-// ✓ Boss: 4 padrões de movimento (patrol/dive/slam/teleport)
-// ✓ HUD: vida do jogador + barra de vida do boss
-// ✓ Projéteis, cura, checkpoint, trilha diferente
+// DAVE: SPACE DIVER — BULLET HELL
+// Fases manuais e pensadas, música do boss corrigida
 // ====================================================
 
 const CV = document.getElementById('c')
@@ -51,19 +43,27 @@ const AC = new (window.AudioContext || window.webkitAudioContext)()
 const logoImg = new Image()
 logoImg.src = './davethespacelogo.png'
 
-// ── MENU STARS ──
+// Configuração
+const DEFAULT_WORLD_W = 2000
 let menuStars = []
 function initMenuStars() {
   menuStars = []
-  for (let i=0;i<20;i++) menuStars.push({
+  for (let i=0;i<30;i++) menuStars.push({
     x:Math.random()*W, y:Math.random()*H,
     vx:Math.random()*0.5+0.2, vy:Math.random()*0.3-0.15,
-    size:Math.random()*1+0.5, opacity:Math.random()*0.5+0.3
+    size:Math.random()*1.5+0.5, opacity:Math.random()*0.5+0.3
   })
 }
 initMenuStars()
 
-// ── AUDIO ──
+// Tutorial
+let tutorialSteps = []
+let currentTutorialStep = 0
+let tutorialMessageActive = false
+let currentTutorialMessage = null
+let tutorialMessageTimer = 0
+
+// ── AUDIO CORRIGIDO ──
 function beep(freq,type,dur,vol,freqEnd){
   if(AC.state==='suspended')AC.resume()
   const o=AC.createOscillator(),g=AC.createGain()
@@ -89,21 +89,25 @@ const sfxHeal     = ()=>{ beep(523,'sine',0.1,0.2); setTimeout(()=>beep(784,'sin
 const sfxLand     = ()=>beep(160,'square',0.04,0.12,80)
 const sfxTeleport = ()=>{ beep(800,'sine',0.04,0.2,300); setTimeout(()=>beep(1200,'sine',0.06,0.3,200),60) }
 const sfxSlam     = ()=>{ beep(80,'sawtooth',0.2,0.4,40); beep(200,'square',0.08,0.2,50) }
+const sfxUnlock   = ()=>{ beep(523,'sine',0.08,0.3); setTimeout(()=>beep(659,'sine',0.08,0.3),100); setTimeout(()=>beep(784,'sine',0.12,0.3),200); setTimeout(()=>beep(1047,'sine',0.2,0.4),350) }
 
 let menuAudioElem=null, gameAudioElem=null, bossAudioElem=null
 function initAudioElements(){
   if(!menuAudioElem){menuAudioElem=document.getElementById('menuAudio');menuAudioElem.volume=0.25}
   if(!gameAudioElem){gameAudioElem=document.getElementById('gameAudio');gameAudioElem.volume=0.25}
-  if(!bossAudioElem){bossAudioElem=document.getElementById('bossAudio');bossAudioElem.volume=0.25}
+  if(!bossAudioElem){bossAudioElem=document.getElementById('bossAudio');bossAudioElem.volume=0.3}
 }
-function startMusic(){ initAudioElements(); stopBossMusic(); stopMenuMusic(); gameAudioElem.currentTime=0; gameAudioElem.play().catch(()=>{}) }
+function startMusic(){ initAudioElements(); stopBossMusic(); stopMenuMusic(); if(gameAudioElem){ gameAudioElem.currentTime=0; gameAudioElem.play().catch(()=>{}) } }
 function stopMusic(){ if(gameAudioElem){gameAudioElem.pause();gameAudioElem.currentTime=0} }
-function startMenuMusic(){ initAudioElements(); stopBossMusic(); gameAudioElem.pause(); gameAudioElem.currentTime=0; menuAudioElem.currentTime=0; menuAudioElem.play().catch(()=>{}) }
+function startMenuMusic(){ initAudioElements(); stopBossMusic(); if(gameAudioElem)gameAudioElem.pause(); if(menuAudioElem){ menuAudioElem.currentTime=0; menuAudioElem.play().catch(()=>{}) } }
 function stopMenuMusic(){ if(menuAudioElem){menuAudioElem.pause();menuAudioElem.currentTime=0} }
 
 function startBossMusic(){
   stopMusic(); stopMenuMusic(); initAudioElements();
-  if(bossAudioElem){ bossAudioElem.currentTime=0; bossAudioElem.play().catch(()=>{}) }
+  if(bossAudioElem){ 
+    bossAudioElem.currentTime=0; 
+    bossAudioElem.play().catch(e=>console.log("Boss music error:", e))
+  }
 }
 function stopBossMusic(){ if(bossAudioElem){bossAudioElem.pause();bossAudioElem.currentTime=0} }
 
@@ -146,9 +150,43 @@ let charJetForce=JETFORCE, charWalkSpeed=WALKSPEED, charMaxSpeedUp=MAXSPEEDUP
 
 // ── ESTADO ──
 let state='character-select'
-let currentPhase='phase1'   // 'phase1'=fases1-6, 'phase2'=boss
+let currentPhase='phase1'
 let selectedCharacter='dave'
 let selectedLevel=1
+let selectedGameMode='level'
+let difficulty='normal'
+let bossFightUnlocked = false
+
+// ── SAVE SYSTEM ──
+function loadSave(){
+  try{ return JSON.parse(localStorage.getItem('dsd_save')||'{}') }catch(e){ return {} }
+}
+function getUnlocked(){
+  const s=loadSave(); return s.unlocked||[1]
+}
+function getBossUnlocked(){
+  const s=loadSave(); return s.bossUnlocked || false
+}
+function unlockLevel(lvl){
+  const s=loadSave()
+  s.unlocked=s.unlocked||[1]
+  if(!s.unlocked.includes(lvl))s.unlocked.push(lvl)
+  try{ localStorage.setItem('dsd_save',JSON.stringify(s)) }catch(e){}
+}
+function unlockBossFight(){
+  const s=loadSave()
+  s.bossUnlocked = true
+  bossFightUnlocked = true
+  try{ localStorage.setItem('dsd_save',JSON.stringify(s)) }catch(e){}
+  sfxUnlock()
+}
+function saveHighscore(lvl, sc){
+  const s=loadSave()
+  s.scores=s.scores||{}
+  if(!s.scores[lvl]||sc>s.scores[lvl]) s.scores[lvl]=sc
+  try{ localStorage.setItem('dsd_save',JSON.stringify(s)) }catch(e){}
+}
+function getHighscore(lvl){ const s=loadSave(); return (s.scores||{})[lvl]||0 }
 let lives=3, score=0, frameN=0
 let damageCD=0, jetCD=0, deathTimer=0
 let particles=[]
@@ -158,391 +196,645 @@ let shootAmmo=SHOOT_AMMO_MAX, shootOverheat=0
 let healObjs=[]
 let mouseAim={x:W/2,y:H/2,worldX:W/2,worldY:H,valid:false}
 
-// ── CHECKPOINT ──
-// checkpointSpawn: ponto exato onde o player vai reaparecer
-let checkpointSpawn = null   // null = sem checkpoint, {x,y} = posição
-
-// ── CÂMERA (scroll horizontal fase 6) ──
-let camX=0   // deslocamento da câmera no mundo
-
-// ── WORLD: fase 6 tem largura maior ──
-let worldW = W  // será 1600 na fase 6
+let checkpointSpawn = null
+let camX=0
+let worldW = DEFAULT_WORLD_W
 
 // ── ENTIDADES ──
 const pl = { x:0, y:0, vx:0, vy:0, w:10, h:16, face:1, jetting:false, onGround:false }
 let starObjs=[], movPlats=[], fixedPlats=[], spikeGroups=[]
 let enemyObjs=[]
 let enemyBullets=[]
-let crate={ x:0,y:0,vx:0,vy:0,w:16,h:16 }
-let checkpointObjs=[]  // array de checkpoints no mapa
+let checkpointObjs=[]
 let bullets=[], bossBullets=[]
-
-// ── PORTAL ──
-// Na fase 6 o portal fica no lado direito do nível longo
-let portal={ x:432,y:99,w:18,h:38 }
+let portal={ x:0,y:0,w:18,h:38 }
 
 // ── BOSS ──
-const BOSS_MAX_HP=20
+let bossMaxHP = 20
 const BOSS_W=36, BOSS_H=36
+
+const JET_HEAT_MAX = 260
+let jetHeat = 0, jetExploded = false, jetExplodeTimer = 0
 let boss={
   x:0,y:0, w:BOSS_W, h:BOSS_H,
-  hp:BOSS_MAX_HP, alive:false,
+  hp:20,
+  alive:false,
   vx:0, vy:0,
   hurtTimer:0,
   shootTimer:0, shootInterval:100,
   phase:1,
-  // Padrões de ataque
-  movePattern:'patrol',  // 'patrol' | 'dive' | 'slam' | 'teleport' | 'spin' | 'laser'
-  patternTimer:0,        // timer do padrão atual
-  patternCD:0,           // cooldown antes de trocar padrão
+  movePattern:'patrol',
+  patternTimer:0,
+  patternCD:0,
   diveTarget:{x:0,y:0},
   diving:false,
   slamWarning:false,
   slamTimer:0,
-  shieldTimer:0,         // frames com escudo ativo (invulnerável)
+  shieldTimer:0,
   teleportFlash:0,
-  groundY:0,             // Y do chão da arena
+  groundY:0,
   spinAngle:0, spinTimer:0, spinBursts:0,
   laserWarning:false, laserTimer:0, laserX:0, laserActive:false, laserActiveTimer:0,
+  lastTeleportCD:0,
+  burstCharge:0,
+  collisionCooldown:0
 }
 
-// ── CONFIGURAÇÃO DAS FASES 1-5 ──
-const LEVELS = {
-  // type: 'grunt'=patrulha x e persegue | 'floater'=patrulha y e atira | 'kamikaze'=carga suicida | 'sniper'=fixo e atira
-  1:{name:'FASE 1: INÍCIO',desc:'Aprenda o básico',
-    movPlats:[
-      {x:120,y:175,w:50,h:10,ox:120,range:70,axis:'x',spd:0.8,t:0},
-      {x:250,y:148,w:48,h:10,oy:148,range:50,axis:'y',spd:0.7,t:1.6},
-    ],
-    fixedPlats:[
-      {x:8,y:218,w:102,h:14},{x:175,y:200,w:75,h:14},{x:300,y:180,w:80,h:14},
-      {x:22,y:148,w:68,h:12},{x:170,y:122,w:65,h:12},{x:300,y:100,w:90,h:12},{x:388,y:135,w:76,h:12},
-    ],
-    stars:[{x:80,y:198},{x:220,y:178},{x:160,y:115}],
-    enemies:[
-      {x:110,y:200,w:16,h:16,axis:'x',range:70,speed:1.1,type:'grunt'},
-      {x:340,y:112,w:14,h:14,axis:'y',range:28,speed:0.8,type:'floater'},
-    ]
-  },
-  2:{name:'FASE 2: DESAFIO',desc:'Mais obstáculos',
-    movPlats:[
-      {x:80,y:200,w:50,h:10,ox:80,range:60,axis:'x',spd:1.0,t:0},
-      {x:220,y:170,w:45,h:10,oy:170,range:40,axis:'y',spd:0.9,t:0.8},
-      {x:350,y:140,w:55,h:10,ox:350,range:80,axis:'x',spd:0.85,t:1.2},
-    ],
-    fixedPlats:[
-      {x:8,y:225,w:60,h:12},{x:100,y:208,w:50,h:12},{x:180,y:195,w:55,h:12},
-      {x:280,y:180,w:50,h:12},{x:360,y:165,w:60,h:12},{x:50,y:140,w:65,h:12},
-      {x:200,y:110,w:70,h:12},{x:330,y:95,w:65,h:12},{x:150,y:75,w:60,h:12},
-    ],
-    stars:[{x:130,y:190},{x:240,y:160},{x:390,y:130},{x:260,y:100}],
-    enemies:[
-      {x:70,y:212,w:16,h:16,axis:'x',range:80,speed:1.4,type:'grunt'},
-      {x:290,y:140,w:14,h:14,axis:'y',range:36,speed:1.0,type:'floater'},
-      {x:240,y:63,w:14,h:14,axis:'x',range:0,speed:0,type:'sniper'},
-    ]
-  },
-  3:{name:'FASE 3: EXPERT',desc:'Teste seus limites',
-    movPlats:[
-      {x:60,y:210,w:40,h:10,ox:60,range:50,axis:'x',spd:1.2,t:0},
-      {x:200,y:180,w:35,h:10,oy:180,range:35,axis:'y',spd:1.1,t:0.4},
-      {x:330,y:150,w:40,h:10,ox:330,range:60,axis:'x',spd:1.0,t:0.8},
-      {x:150,y:120,w:35,h:10,oy:120,range:45,axis:'y',spd:0.95,t:1.2},
-      {x:300,y:85,w:45,h:10,ox:300,range:70,axis:'x',spd:1.15,t:1.6},
-    ],
-    fixedPlats:[
-      {x:8,y:230,w:50,h:10},{x:90,y:215,w:40,h:10},{x:160,y:200,w:45,h:10},
-      {x:250,y:185,w:40,h:10},{x:340,y:165,w:45,h:10},{x:420,y:145,w:50,h:10},
-      {x:50,y:130,w:55,h:10},{x:190,y:105,w:50,h:10},{x:310,y:115,w:40,h:10},
-      {x:100,y:80,w:50,h:10},{x:270,y:60,w:55,h:10},
-    ],
-    stars:[{x:115,y:205},{x:210,y:175},{x:395,y:145},{x:180,y:105},{x:340,y:80}],
-    enemies:[
-      {x:120,y:218,w:16,h:16,axis:'x',range:90,speed:1.3,type:'grunt'},
-      {x:360,y:135,w:14,h:14,axis:'y',range:40,speed:1.1,type:'floater'},
-      {x:80,y:68,w:14,h:14,axis:'x',range:0,speed:0,type:'sniper'},
-      {x:290,y:52,w:13,h:13,axis:'x',range:40,speed:2.1,type:'kamikaze'},
-    ]
-  },
-  4:{name:'FASE 4: SPIKES',desc:'Esquive com jetpack',
-    movPlats:[
-      {x:150,y:210,w:50,h:10,ox:150,range:60,axis:'x',spd:0.7,t:0},
-      {x:300,y:170,w:40,h:10,oy:170,range:55,axis:'y',spd:0.9,t:1.0},
-    ],
-    fixedPlats:[
-      {x:8,y:235,w:60,h:12},{x:100,y:220,w:55,h:12},{x:390,y:235,w:80,h:12},{x:420,y:50,w:52,h:12},
-    ],
-    spikes:[
-      {x:130,y:0,w:50,h:18,dir:'down'},{x:200,y:0,w:60,h:18,dir:'down'},
-      {x:280,y:0,w:55,h:18,dir:'down'},{x:360,y:0,w:50,h:18,dir:'down'},
-    ],
-    stars:[{x:180,y:210},{x:330,y:160},{x:450,y:210},{x:240,y:80},{x:380,y:120},{x:100,y:90}],
-    enemies:[
-      {x:140,y:222,w:13,h:13,axis:'x',range:70,speed:2.4,type:'kamikaze'},
-      {x:300,y:155,w:14,h:14,axis:'y',range:50,speed:1.2,type:'floater'},
-      {x:440,y:222,w:16,h:16,axis:'x',range:60,speed:1.2,type:'grunt'},
-      {x:260,y:65,w:14,h:14,axis:'x',range:0,speed:0,type:'sniper'},
-    ]
-  },
-  5:{name:'FASE 5: SKY RUNNER',desc:'Corra pelo céu',
-    movPlats:[
-      {x:100,y:130,w:45,h:10,ox:100,range:70,axis:'x',spd:1.1,t:0},
-      {x:280,y:95,w:40,h:10,oy:95,range:50,axis:'y',spd:0.85,t:0.5},
-      {x:140,y:65,w:35,h:10,ox:140,range:80,axis:'x',spd:1.3,t:1.0},
-      {x:350,y:40,w:50,h:10,oy:40,range:45,axis:'y',spd:1.0,t:1.5},
-    ],
-    fixedPlats:[
-      {x:8,y:240,w:50,h:12},{x:200,y:150,w:50,h:12},{x:380,y:120,w:55,h:12},
-      {x:80,y:70,w:45,h:12},{x:250,y:55,w:50,h:12},{x:430,y:50,w:42,h:12},
-    ],
-    stars:[{x:130,y:120},{x:220,y:120},{x:310,y:85},{x:160,y:55},{x:310,y:30},{x:400,y:60}],
-    enemies:[
-      {x:90,y:228,w:16,h:16,axis:'x',range:90,speed:1.5,type:'grunt'},
-      {x:340,y:82,w:14,h:14,axis:'y',range:42,speed:1.0,type:'floater'},
-      {x:450,y:38,w:13,h:13,axis:'x',range:30,speed:2.5,type:'kamikaze'},
-      {x:175,y:138,w:16,h:16,axis:'x',range:0,speed:0,type:'sniper'},
-      {x:260,y:42,w:14,h:14,axis:'x',range:0,speed:0,type:'sniper'},
-    ]
-  }
+// ==================== FASES MANUAIS (BULLET HELL) ====================
+
+// FASE 1: TUTORIAL
+function loadLevel1() {
+  worldW = 1800
+  camX = 0
+  checkpointSpawn = null
+  
+  fixedPlats = [
+    {x:0, y:242, w:200, h:28, col:'#1a2a4a'},
+    {x:250, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:400, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:580, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:730, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:900, y:242, w:150, h:28, col:'#1a2a4a'},
+    {x:1100, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1250, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1420, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1570, y:242, w:130, h:28, col:'#1a2a4a'},
+    // Plataformas flutuantes para tutorial
+    {x:150, y:200, w:60, h:12, col:'#1a3a2a'},
+    {x:350, y:180, w:50, h:12, col:'#1a3a2a'},
+    {x:500, y:160, w:60, h:12, col:'#1a3a2a'},
+    {x:700, y:170, w:50, h:12, col:'#1a3a2a'},
+    {x:850, y:150, w:60, h:12, col:'#1a3a2a'},
+    {x:1000, y:190, w:55, h:12, col:'#1a3a2a'},
+    {x:1150, y:170, w:50, h:12, col:'#1a3a2a'},
+    {x:1300, y:160, w:60, h:12, col:'#1a3a2a'},
+    {x:1450, y:180, w:55, h:12, col:'#1a3a2a'},
+  ]
+  
+  movPlats = [
+    {x:200, y:215, w:45, h:10, ox:200, range:50, axis:'x', spd:0.8, t:0, col:'#1a4030'},
+    {x:600, y:200, w:40, h:10, oy:200, range:35, axis:'y', spd:0.7, t:1, col:'#1a4030'},
+    {x:1050, y:210, w:45, h:10, ox:1050, range:60, axis:'x', spd:0.9, t:0.5, col:'#1a4030'},
+  ]
+  
+  spikeGroups = [
+    {x:-10, y:0, w:18, h:270, dir:'right', wall:true},
+    {x:worldW, y:0, w:18, h:270, dir:'left', wall:true},
+  ]
+  
+  starObjs = [
+    {x:100, y:180, got:false, angle:0},
+    {x:300, y:160, got:false, angle:0},
+    {x:450, y:140, got:false, angle:0},
+    {x:650, y:150, got:false, angle:0},
+    {x:800, y:130, got:false, angle:0},
+    {x:950, y:170, got:false, angle:0},
+    {x:1100, y:150, got:false, angle:0},
+    {x:1250, y:140, got:false, angle:0},
+    {x:1400, y:160, got:false, angle:0},
+    {x:1550, y:180, got:false, angle:0},
+  ]
+  
+  healObjs = [
+    {x:500, y:140, got:false},
+    {x:1200, y:150, got:false},
+  ]
+  
+  checkpointObjs = [
+    {x:900, y:218, w:14, h:24, activated:false}
+  ]
+  
+  portal = { x: worldW - 120, y: 218, w: 18, h: 38 }
+  
+  // Inimigos fáceis para tutorial
+  enemyObjs = [
+    {x:250, y:226, w:16, h:16, ox:250, range:50, speed:0.8, dir:1, dead:false, type:'grunt', baseSpeed:0.8, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:550, y:150, w:14, h:14, ox:550, oy:150, range:30, speed:0.7, dir:1, dead:false, type:'floater', baseSpeed:0.7, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:800, y:226, w:16, h:16, ox:800, range:60, speed:0.9, dir:1, dead:false, type:'grunt', baseSpeed:0.9, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1100, y:160, w:14, h:14, ox:1100, oy:160, range:40, speed:0.8, dir:1, dead:false, type:'floater', baseSpeed:0.8, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1350, y:226, w:16, h:16, ox:1350, range:70, speed:1.0, dir:1, dead:false, type:'grunt', baseSpeed:1.0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+  ]
+  
+  pl.x = 50; pl.y = 210
+  initTutorial()
 }
 
-// ── FASE 6: NÍVEL LONGO COM SCROLL (estilo Mario) ──
-// worldW = 1600. O jogador vai da esquerda para a direita.
-// Checkpoint no meio do nível. Portal no fim.
-const LEVEL6_W = 1600
-const LEVEL6 = {
-  name:'FASE 6: PASSAGEM',desc:'Scroll horizontal',
-  worldW: LEVEL6_W,
-  // Chão
-  fixedPlats:[
-    // ── SEÇÃO 1 (0-400): início suave ──
-    {x:0,   y:242,w:160,h:28,col:'#1a2a4a'}, // plataforma inicial grande
-    {x:200, y:242,w:80, h:28,col:'#1a2a4a'},
-    {x:340, y:242,w:80, h:28,col:'#1a2a4a'},
-    // plataformas altas seção 1
-    {x:80,  y:190,w:60, h:12,col:'#1a3a2a'},
-    {x:200, y:170,w:60, h:12,col:'#1a3a2a'},
-    {x:310, y:150,w:50, h:12,col:'#1a3a2a'},
-    // ── SEÇÃO 2 (400-800): obstáculos ──
-    {x:460, y:242,w:100,h:28,col:'#1a2a4a'},
-    {x:620, y:242,w:80, h:28,col:'#1a2a4a'},
-    {x:760, y:242,w:100,h:28,col:'#1a2a4a'},
-    // Plataformas flutuantes
-    {x:430, y:195,w:70, h:12,col:'#1a3a2a'},
-    {x:560, y:175,w:60, h:12,col:'#1a3a2a'},
-    {x:680, y:155,w:55, h:12,col:'#1a3a2a'},
-    {x:790, y:175,w:60, h:12,col:'#1a3a2a'},
+// FASE 2: INTENSIFICAÇÃO
+function loadLevel2() {
+  worldW = 2000
+  camX = 0
+  checkpointSpawn = null
+  
+  fixedPlats = [
+    {x:0, y:242, w:180, h:28, col:'#1a2a4a'},
+    {x:220, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:380, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:520, y:242, w:140, h:28, col:'#1a2a4a'},
+    {x:700, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:850, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1020, y:242, w:150, h:28, col:'#1a2a4a'},
+    {x:1220, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1370, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1540, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1680, y:242, w:180, h:28, col:'#1a2a4a'},
     // Plataformas altas
-    {x:480, y:140,w:50, h:12,col:'#1a4030'},
-    {x:600, y:120,w:50, h:12,col:'#1a4030'},
-    {x:720, y:105,w:55, h:12,col:'#1a4030'},
-    // ── CHECKPOINT (x≈820) ──
-    // área plana segura perto do checkpoint
-    {x:820, y:242,w:120,h:28,col:'#1a2a4a'},
-    {x:820, y:190,w:60, h:12,col:'#1a2a5a'},
-    // ── SEÇÃO 3 (960-1200): mais difícil ──
-    {x:980, y:242,w:80, h:28,col:'#1a2a4a'},
-    {x:1120,y:242,w:80, h:28,col:'#1a2a4a'},
-    {x:960, y:190,w:55, h:12,col:'#1a3a2a'},
-    {x:1060,y:165,w:50, h:12,col:'#1a3a2a'},
-    {x:1160,y:145,w:55, h:12,col:'#1a3a2a'},
-    {x:1000,y:130,w:45, h:12,col:'#1a4030'},
-    {x:1100,y:110,w:50, h:12,col:'#1a4030'},
-    // ── SEÇÃO 4 (1250-1550): reta final ──
-    {x:1260,y:242,w:80, h:28,col:'#1a2a4a'},
-    {x:1390,y:242,w:80, h:28,col:'#1a2a4a'},
-    {x:1280,y:185,w:60, h:12,col:'#1a3a2a'},
-    {x:1360,y:160,w:55, h:12,col:'#1a3a2a'},
-    {x:1440,y:185,w:60, h:12,col:'#1a3a2a'},
-    // Plataforma final (próximo ao portal)
-    {x:1530,y:242,w:70, h:28,col:'#1a2a4a'},
-    {x:1520,y:150,w:60, h:12,col:'#1a4030'},
-  ],
-  movPlats:[
-    // Seção 1
-    {x:155,y:215,w:45,h:10,ox:155,range:45,axis:'x',spd:0.8,t:0},
-    {x:290,y:200,w:40,h:10,oy:200,range:30,axis:'y',spd:0.7,t:1.0},
-    // Seção 2
-    {x:550,y:210,w:50,h:10,ox:550,range:60,axis:'x',spd:1.0,t:0.5},
-    {x:670,y:195,w:45,h:10,oy:195,range:35,axis:'y',spd:0.9,t:1.2},
-    {x:860,y:210,w:45,h:10,ox:860,range:50,axis:'x',spd:0.85,t:0.8},
-    // Seção 3
-    {x:1040,y:210,w:50,h:10,ox:1040,range:55,axis:'x',spd:1.1,t:0.3},
-    {x:1190,y:200,w:40,h:10,oy:200,range:40,axis:'y',spd:1.0,t:1.5},
-    // Seção 4
-    {x:1320,y:210,w:50,h:10,ox:1320,range:60,axis:'x',spd:1.2,t:0.6},
-  ],
-  spikes:[
-    // Buracos entre chãos (dano por queda já cobre isso)
-    // Espinhos no teto seção 2
-    {x:460, y:0,w:40,h:18,dir:'down'},
-    {x:700, y:0,w:40,h:18,dir:'down'},
-    // Espinhos no teto seção 3
-    {x:1000,y:0,w:50,h:18,dir:'down'},
-    {x:1200,y:0,w:40,h:18,dir:'down'},
-  ],
-  stars:[
-    // Seção 1
-    {x:100, y:170},{x:230, y:150},{x:320, y:130},
-    // Seção 2
-    {x:500, y:175},{x:620, y:155},{x:750, y:135},{x:810, y:105},
-    // Seção 3
-    {x:1010,y:170},{x:1120,y:145},{x:1150,y:90},
-    // Seção 4
-    {x:1300,y:165},{x:1400,y:140},{x:1460,y:165},
-  ],
-  heals:[{x:845,y:168}],
-  // Checkpoint no meio do mundo
-  checkpoints:[{x:840, y:218}],
-  // Portal no fim
-  portalPos:{x:1560, y:118, w:18, h:38},
-  enemies:[
-    // Seção 1
-    {x:120,y:226,w:16,h:16,axis:'x',range:80,speed:1.2,type:'grunt'},
-    {x:300,y:138,w:14,h:14,axis:'y',range:28,speed:0.9,type:'floater'},
-    // Seção 2
-    {x:490,y:226,w:16,h:16,axis:'x',range:60,speed:1.4,type:'grunt'},
-    {x:650,y:142,w:14,h:14,axis:'y',range:32,speed:1.0,type:'floater'},
-    {x:740,y:162,w:14,h:14,axis:'x',range:0,speed:0,type:'sniper'},
-    // Seção 3
-    {x:1000,y:226,w:13,h:13,axis:'x',range:55,speed:2.2,type:'kamikaze'},
-    {x:1090,y:152,w:14,h:14,axis:'y',range:30,speed:1.1,type:'floater'},
-    {x:1150,y:230,w:16,h:16,axis:'x',range:70,speed:1.6,type:'grunt'},
-    // Seção 4
-    {x:1290,y:226,w:13,h:13,axis:'x',range:50,speed:2.5,type:'kamikaze'},
-    {x:1400,y:147,w:14,h:14,axis:'x',range:0,speed:0,type:'sniper'},
-    {x:1450,y:226,w:16,h:16,axis:'x',range:60,speed:1.5,type:'grunt'},
-  ],
+    {x:100, y:200, w:60, h:12, col:'#1a3a2a'},
+    {x:300, y:180, w:50, h:12, col:'#1a3a2a'},
+    {x:480, y:160, w:60, h:12, col:'#1a3a2a'},
+    {x:650, y:140, w:50, h:12, col:'#1a3a2a'},
+    {x:820, y:170, w:60, h:12, col:'#1a3a2a'},
+    {x:1000, y:150, w:55, h:12, col:'#1a3a2a'},
+    {x:1180, y:130, w:60, h:12, col:'#1a3a2a'},
+    {x:1350, y:160, w:50, h:12, col:'#1a3a2a'},
+    {x:1520, y:140, w:60, h:12, col:'#1a3a2a'},
+    {x:1650, y:180, w:55, h:12, col:'#1a3a2a'},
+  ]
+  
+  movPlats = [
+    {x:150, y:215, w:45, h:10, ox:150, range:60, axis:'x', spd:1.0, t:0, col:'#1a4030'},
+    {x:400, y:195, w:40, h:10, oy:195, range:40, axis:'y', spd:0.8, t:0.5, col:'#1a4030'},
+    {x:700, y:185, w:45, h:10, ox:700, range:70, axis:'x', spd:1.1, t:1, col:'#1a4030'},
+    {x:1100, y:175, w:40, h:10, oy:175, range:45, axis:'y', spd:0.9, t:1.5, col:'#1a4030'},
+    {x:1450, y:190, w:45, h:10, ox:1450, range:65, axis:'x', spd:1.0, t:2, col:'#1a4030'},
+  ]
+  
+  spikeGroups = [
+    {x:-10, y:0, w:18, h:270, dir:'right', wall:true},
+    {x:worldW, y:0, w:18, h:270, dir:'left', wall:true},
+    {x:300, y:0, w:40, h:18, dir:'down'},
+    {x:800, y:0, w:50, h:18, dir:'down'},
+    {x:1300, y:0, w:40, h:18, dir:'down'},
+    {x:1700, y:0, w:50, h:18, dir:'down'},
+  ]
+  
+  starObjs = [
+    {x:80, y:180, got:false, angle:0}, {x:200, y:160, got:false, angle:0},
+    {x:350, y:140, got:false, angle:0}, {x:500, y:120, got:false, angle:0},
+    {x:650, y:170, got:false, angle:0}, {x:780, y:150, got:false, angle:0},
+    {x:920, y:130, got:false, angle:0}, {x:1080, y:110, got:false, angle:0},
+    {x:1250, y:140, got:false, angle:0}, {x:1400, y:120, got:false, angle:0},
+    {x:1550, y:160, got:false, angle:0}, {x:1700, y:140, got:false, angle:0},
+  ]
+  
+  healObjs = [
+    {x:400, y:140, got:false},
+    {x:900, y:130, got:false},
+    {x:1500, y:120, got:false},
+  ]
+  
+  checkpointObjs = [
+    {x:1000, y:218, w:14, h:24, activated:false}
+  ]
+  
+  portal = { x: worldW - 120, y: 218, w: 18, h: 38 }
+  
+  enemyObjs = [
+    {x:180, y:226, w:16, h:16, ox:180, range:60, speed:1.1, dir:1, dead:false, type:'grunt', baseSpeed:1.1, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:320, y:170, w:14, h:14, ox:320, oy:170, range:35, speed:0.9, dir:1, dead:false, type:'floater', baseSpeed:0.9, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:550, y:226, w:16, h:16, ox:550, range:70, speed:1.3, dir:1, dead:false, type:'grunt', baseSpeed:1.3, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:750, y:130, w:14, h:14, ox:750, range:0, speed:0, dir:1, dead:false, type:'sniper', baseSpeed:0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:950, y:226, w:13, h:13, ox:950, range:50, speed:2.0, dir:1, dead:false, type:'kamikaze', baseSpeed:2.0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1150, y:160, w:14, h:14, ox:1150, oy:160, range:40, speed:1.0, dir:1, dead:false, type:'floater', baseSpeed:1.0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1350, y:226, w:16, h:16, ox:1350, range:65, speed:1.4, dir:1, dead:false, type:'grunt', baseSpeed:1.4, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1600, y:140, w:14, h:14, ox:1600, range:0, speed:0, dir:1, dead:false, type:'sniper', baseSpeed:0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+  ]
+  
+  pl.x = 50; pl.y = 210
 }
 
-// ── ARENA DO BOSS ──
-const BOSS_ARENA_PLATS = [
-  {x:0,   y:242,w:480,h:28,col:'#3a1a0a'},  // chão
-  {x:20,  y:185,w:80, h:12,col:'#3a2a0a'},  // plataformas laterais
-  {x:380, y:185,w:80, h:12,col:'#3a2a0a'},
-  {x:160, y:158,w:70, h:10,col:'#3a2a0a'},  // plataformas centrais
-  {x:250, y:158,w:70, h:10,col:'#3a2a0a'},
-  {x:80,  y:118,w:60, h:10,col:'#3a2a0a'},  // altas
-  {x:340, y:118,w:60, h:10,col:'#3a2a0a'},
-  {x:200, y:90, w:80, h:10,col:'#3a2a0a'},  // topo-centro
-]
-
-const bgStarsArr=Array.from({length:150},()=>({x:Math.random()*1600,y:Math.random()*270,s:Math.random()*1.5+0.3,ph:Math.random()*Math.PI*2,sp:Math.random()*0.03+0.01}))
-const nebulas1=Array.from({length:14},()=>({x:Math.random()*1600,y:Math.random()*270,rx:Math.random()*60+30,ry:Math.random()*35+20,col:Math.random()>0.5?[40,20,100]:[10,30,100],a:Math.random()*0.18+0.05}))
-const nebulas2=Array.from({length:10},()=>({x:Math.random()*480,y:Math.random()*270,rx:Math.random()*60+30,ry:Math.random()*35+20,col:[120+Math.random()*40|0,Math.random()*30|0,Math.random()*20|0],a:Math.random()*0.22+0.06}))
-
-// ── INIT ──
-function initGame(){
-  if(selectedCharacter==='cassidy'){
-    charJetForce=JETFORCE*1.15; charWalkSpeed=WALKSPEED*1.12; charMaxSpeedUp=MAXSPEEDUP*1.1
-  } else {
-    charJetForce=JETFORCE; charWalkSpeed=WALKSPEED; charMaxSpeedUp=MAXSPEEDUP
+// FASE 3: BULLET HELL
+function loadLevel3() {
+  worldW = 2200
+  camX = 0
+  checkpointSpawn = null
+  
+  fixedPlats = [
+    {x:0, y:242, w:150, h:28, col:'#1a2a4a'},
+    {x:180, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:310, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:460, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:590, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:750, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:880, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1030, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1160, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1320, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1450, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1600, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1730, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1890, y:242, w:150, h:28, col:'#1a2a4a'},
+    // Plataformas estratégicas
+    {x:120, y:195, w:55, h:12, col:'#1a3a2a'},
+    {x:280, y:175, w:50, h:12, col:'#1a3a2a'},
+    {x:440, y:155, w:55, h:12, col:'#1a3a2a'},
+    {x:600, y:135, w:50, h:12, col:'#1a3a2a'},
+    {x:760, y:165, w:55, h:12, col:'#1a3a2a'},
+    {x:920, y:145, w:50, h:12, col:'#1a3a2a'},
+    {x:1080, y:125, w:55, h:12, col:'#1a3a2a'},
+    {x:1240, y:155, w:50, h:12, col:'#1a3a2a'},
+    {x:1400, y:135, w:55, h:12, col:'#1a3a2a'},
+    {x:1560, y:165, w:50, h:12, col:'#1a3a2a'},
+    {x:1720, y:145, w:55, h:12, col:'#1a3a2a'},
+    {x:1880, y:175, w:50, h:12, col:'#1a3a2a'},
+  ]
+  
+  movPlats = [
+    {x:200, y:210, w:40, h:10, ox:200, range:55, axis:'x', spd:1.2, t:0, col:'#1a4030'},
+    {x:500, y:190, w:35, h:10, oy:190, range:40, axis:'y', spd:1.0, t:0.3, col:'#1a4030'},
+    {x:800, y:200, w:40, h:10, ox:800, range:65, axis:'x', spd:1.3, t:0.6, col:'#1a4030'},
+    {x:1100, y:180, w:35, h:10, oy:180, range:45, axis:'y', spd:1.1, t:0.9, col:'#1a4030'},
+    {x:1400, y:195, w:40, h:10, ox:1400, range:60, axis:'x', spd:1.2, t:1.2, col:'#1a4030'},
+    {x:1700, y:185, w:35, h:10, oy:185, range:40, axis:'y', spd:1.0, t:1.5, col:'#1a4030'},
+  ]
+  
+  spikeGroups = [
+    {x:-10, y:0, w:18, h:270, dir:'right', wall:true},
+    {x:worldW, y:0, w:18, h:270, dir:'left', wall:true},
+    {x:200, y:0, w:40, h:18, dir:'down'}, {x:450, y:0, w:50, h:18, dir:'down'},
+    {x:700, y:0, w:40, h:18, dir:'down'}, {x:950, y:0, w:50, h:18, dir:'down'},
+    {x:1200, y:0, w:40, h:18, dir:'down'}, {x:1450, y:0, w:50, h:18, dir:'down'},
+    {x:1700, y:0, w:40, h:18, dir:'down'}, {x:1950, y:0, w:50, h:18, dir:'down'},
+  ]
+  
+  starObjs = []
+  for(let i=0;i<16;i++) {
+    starObjs.push({x:100 + i*130, y:170 + (i%3)*20, got:false, angle:0})
   }
-  lives=3; score=0; frameN=0; damageCD=0; jetCD=0; deathTimer=0
-  healItems=1; healCD=0; shootCD=0; shootAmmo=SHOOT_AMMO_MAX; shootOverheat=0; bullets=[]; bossBullets=[]; enemyBullets=[]; particles=[]
-  enemyObjs=[]
-  checkpointSpawn=null
-  boss.alive=false
-  currentPhase='phase1'
-  if(selectedLevel===6){ loadLevel6() } else { loadNormalLevel() }
-  state='playing'
-  startMusic()
-  if(AC.state==='suspended')AC.resume()
+  
+  healObjs = [
+    {x:300, y:155, got:false}, {x:700, y:145, got:false},
+    {x:1100, y:125, got:false}, {x:1500, y:135, got:false}, {x:1900, y:155, got:false},
+  ]
+  
+  checkpointObjs = [
+    {x:600, y:218, w:14, h:24, activated:false},
+    {x:1500, y:218, w:14, h:24, activated:false},
+  ]
+  
+  portal = { x: worldW - 120, y: 218, w: 18, h: 38 }
+  
+  enemyObjs = [
+    {x:150, y:226, w:16, h:16, ox:150, range:65, speed:1.2, dir:1, dead:false, type:'grunt', baseSpeed:1.2, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:250, y:165, w:14, h:14, ox:250, oy:165, range:40, speed:1.0, dir:1, dead:false, type:'floater', baseSpeed:1.0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:400, y:226, w:13, h:13, ox:400, range:55, speed:2.2, dir:1, dead:false, type:'kamikaze', baseSpeed:2.2, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:550, y:145, w:14, h:14, ox:550, range:0, speed:0, dir:1, dead:false, type:'sniper', baseSpeed:0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:680, y:226, w:16, h:16, ox:680, range:70, speed:1.3, dir:1, dead:false, type:'grunt', baseSpeed:1.3, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:850, y:155, w:14, h:14, ox:850, oy:155, range:45, speed:1.1, dir:1, dead:false, type:'floater', baseSpeed:1.1, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1000, y:226, w:13, h:13, ox:1000, range:60, speed:2.3, dir:1, dead:false, type:'kamikaze', baseSpeed:2.3, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1150, y:135, w:14, h:14, ox:1150, range:0, speed:0, dir:1, dead:false, type:'sniper', baseSpeed:0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1300, y:226, w:16, h:16, ox:1300, range:65, speed:1.4, dir:1, dead:false, type:'grunt', baseSpeed:1.4, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1480, y:175, w:14, h:14, ox:1480, oy:175, range:40, speed:1.0, dir:1, dead:false, type:'floater', baseSpeed:1.0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1650, y:226, w:13, h:13, ox:1650, range:55, speed:2.4, dir:1, dead:false, type:'kamikaze', baseSpeed:2.4, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+    {x:1800, y:145, w:14, h:14, ox:1800, range:0, speed:0, dir:1, dead:false, type:'sniper', baseSpeed:0, shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0},
+  ]
+  
+  pl.x = 50; pl.y = 210
 }
 
-function loadNormalLevel(){
-  const cfg=LEVELS[selectedLevel]||LEVELS[1]
-  worldW=W
-  camX=0
-  movPlats=[...cfg.movPlats.map(p=>({...p,col:'#1a4030'}))]
-  fixedPlats=[...cfg.fixedPlats.map(p=>({col:'#1a2a4a',...p}))]
-  spikeGroups=[
-    {x:-10,y:0,w:18,h:270,dir:'right',wall:true},
-    {x:472,y:0,w:18,h:270,dir:'left',wall:true},
-    ...(cfg.spikes||[]).map(s=>({...s}))
+// FASE 4: INFERNO
+function loadLevel4() {
+  worldW = 2200
+  camX = 0
+  checkpointSpawn = null
+  
+  fixedPlats = [
+    {x:0, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:150, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:280, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:430, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:560, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:720, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:850, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1000, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1130, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1290, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1420, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1570, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1700, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1860, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1990, y:242, w:150, h:28, col:'#1a2a4a'},
   ]
-  starObjs=cfg.stars.map(s=>({x:s.x,y:s.y,got:false,angle:0}))
-  healObjs=[]
-  enemyObjs=(cfg.enemies||[]).map(e=>({
-    x:e.x,y:e.y,w:e.w||16,h:e.h||16,
-    ox:e.x,oy:e.y,axis:e.axis||'x',range:e.range||40,speed:e.speed||1,dir:1,dead:false,
-    type:e.type||'grunt', baseSpeed:e.speed||1,
-    shootTimer:80+Math.random()*60|0, alertTimer:0, charging:false, angle:0,
-    chargeTimer:0, chargeCooldown:0
-  }))
-  crate={x:210,y:184,vx:0,vy:0,w:16,h:16}
-  pl.x=20;pl.y=195;pl.vx=0;pl.vy=0;pl.face=1;pl.jetting=false
-  portal.x=432;portal.y=99;portal.w=18;portal.h=38
-  checkpointObjs=[]
+  
+  movPlats = [
+    {x:100, y:205, w:40, h:10, ox:100, range:60, axis:'x', spd:1.3, t:0, col:'#1a4030'},
+    {x:350, y:185, w:35, h:10, oy:185, range:45, axis:'y', spd:1.1, t:0.4, col:'#1a4030'},
+    {x:600, y:195, w:40, h:10, ox:600, range:70, axis:'x', spd:1.4, t:0.8, col:'#1a4030'},
+    {x:900, y:175, w:35, h:10, oy:175, range:50, axis:'y', spd:1.2, t:1.2, col:'#1a4030'},
+    {x:1200, y:190, w:40, h:10, ox:1200, range:65, axis:'x', spd:1.3, t:1.6, col:'#1a4030'},
+    {x:1500, y:180, w:35, h:10, oy:180, range:45, axis:'y', spd:1.1, t:2.0, col:'#1a4030'},
+    {x:1800, y:195, w:40, h:10, ox:1800, range:70, axis:'x', spd:1.4, t:2.4, col:'#1a4030'},
+  ]
+  
+  spikeGroups = [
+    {x:-10, y:0, w:18, h:270, dir:'right', wall:true},
+    {x:worldW, y:0, w:18, h:270, dir:'left', wall:true},
+    {x:150, y:0, w:45, h:18, dir:'down'}, {x:350, y:0, w:45, h:18, dir:'down'},
+    {x:550, y:0, w:45, h:18, dir:'down'}, {x:750, y:0, w:45, h:18, dir:'down'},
+    {x:950, y:0, w:45, h:18, dir:'down'}, {x:1150, y:0, w:45, h:18, dir:'down'},
+    {x:1350, y:0, w:45, h:18, dir:'down'}, {x:1550, y:0, w:45, h:18, dir:'down'},
+    {x:1750, y:0, w:45, h:18, dir:'down'}, {x:1950, y:0, w:45, h:18, dir:'down'},
+  ]
+  
+  starObjs = []
+  for(let i=0;i<18;i++) {
+    starObjs.push({x:80 + i*120, y:170 + (i%4)*15 - 20, got:false, angle:0})
+  }
+  
+  healObjs = [
+    {x:250, y:165, got:false}, {x:650, y:155, got:false},
+    {x:1050, y:145, got:false}, {x:1450, y:155, got:false}, {x:1850, y:165, got:false},
+  ]
+  
+  checkpointObjs = [
+    {x:500, y:218, w:14, h:24, activated:false},
+    {x:1100, y:218, w:14, h:24, activated:false},
+    {x:1700, y:218, w:14, h:24, activated:false},
+  ]
+  
+  portal = { x: worldW - 120, y: 218, w: 18, h: 38 }
+  
+  enemyObjs = []
+  for(let i=0;i<20;i++) {
+    const types = ['grunt', 'floater', 'kamikaze', 'sniper']
+    const type = types[Math.floor(Math.random() * 4)]
+    const x = 100 + i * 110
+    enemyObjs.push({
+      x:x, y:type==='floater'?170:226, w:16, h:16,
+      ox:x, oy:type==='floater'?170:226, range:45, speed:1.3 + Math.random()*0.5,
+      dir:1, dead:false, type:type, baseSpeed:1.3 + Math.random()*0.5,
+      shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0
+    })
+  }
+  
+  pl.x = 50; pl.y = 210
 }
 
-function loadLevel6(){
-  const cfg=LEVEL6
-  worldW=cfg.worldW
-  camX=0
-  movPlats=[...cfg.movPlats.map(p=>({...p,col:'#1a4030'}))]
-  fixedPlats=[...cfg.fixedPlats.map(p=>({col:'#1a2a4a',...p}))]
-  spikeGroups=[
-    {x:-10,y:0,w:18,h:cfg.worldW+18,dir:'right',wall:true},
-    {x:cfg.worldW,y:0,w:18,h:270,dir:'left',wall:true},
-    ...(cfg.spikes||[]).map(s=>({...s}))
+// FASE 5: DESAFIO FINAL
+function loadLevel5() {
+  worldW = 2400
+  camX = 0
+  checkpointSpawn = null
+  
+  fixedPlats = [
+    {x:0, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:130, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:260, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:410, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:540, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:700, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:830, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:980, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1110, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1270, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1400, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1550, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1680, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1840, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1970, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:2120, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:2250, y:242, w:130, h:28, col:'#1a2a4a'},
   ]
-  starObjs=cfg.stars.map(s=>({x:s.x,y:s.y,got:false,angle:0}))
-  portal={...cfg.portalPos}
-  checkpointObjs=cfg.checkpoints.map(c=>({x:c.x,y:c.y,w:14,h:24,activated:false}))
-  healObjs=(cfg.heals||[]).map(h=>({x:h.x,y:h.y,got:false}))
-  enemyObjs=(cfg.enemies||[]).map(e=>({
-    x:e.x,y:e.y,w:e.w||16,h:e.h||16,
-    ox:e.x,oy:e.y,axis:e.axis||'x',range:e.range||40,speed:e.speed||1,dir:1,dead:false,
-    type:e.type||'grunt', baseSpeed:e.speed||1,
-    shootTimer:80+Math.random()*60|0, alertTimer:0, charging:false, angle:0,
-    chargeTimer:0, chargeCooldown:0
-  }))
-  pl.x=30;pl.y=210;pl.vx=0;pl.vy=0;pl.face=1;pl.jetting=false
-  crate={x:210,y:220,vx:0,vy:0,w:16,h:16}
+  
+  movPlats = [
+    {x:150, y:200, w:40, h:10, ox:150, range:65, axis:'x', spd:1.4, t:0, col:'#1a4030'},
+    {x:400, y:180, w:35, h:10, oy:180, range:50, axis:'y', spd:1.2, t:0.5, col:'#1a4030'},
+    {x:650, y:190, w:40, h:10, ox:650, range:75, axis:'x', spd:1.5, t:1.0, col:'#1a4030'},
+    {x:950, y:170, w:35, h:10, oy:170, range:55, axis:'y', spd:1.3, t:1.5, col:'#1a4030'},
+    {x:1250, y:185, w:40, h:10, ox:1250, range:70, axis:'x', spd:1.4, t:2.0, col:'#1a4030'},
+    {x:1550, y:175, w:35, h:10, oy:175, range:50, axis:'y', spd:1.2, t:2.5, col:'#1a4030'},
+    {x:1850, y:190, w:40, h:10, ox:1850, range:75, axis:'x', spd:1.5, t:3.0, col:'#1a4030'},
+    {x:2150, y:180, w:35, h:10, oy:180, range:55, axis:'y', spd:1.3, t:3.5, col:'#1a4030'},
+  ]
+  
+  spikeGroups = [
+    {x:-10, y:0, w:18, h:270, dir:'right', wall:true},
+    {x:worldW, y:0, w:18, h:270, dir:'left', wall:true},
+    {x:100, y:0, w:50, h:18, dir:'down'}, {x:300, y:0, w:50, h:18, dir:'down'},
+    {x:500, y:0, w:50, h:18, dir:'down'}, {x:700, y:0, w:50, h:18, dir:'down'},
+    {x:900, y:0, w:50, h:18, dir:'down'}, {x:1100, y:0, w:50, h:18, dir:'down'},
+    {x:1300, y:0, w:50, h:18, dir:'down'}, {x:1500, y:0, w:50, h:18, dir:'down'},
+    {x:1700, y:0, w:50, h:18, dir:'down'}, {x:1900, y:0, w:50, h:18, dir:'down'},
+    {x:2100, y:0, w:50, h:18, dir:'down'}, {x:2300, y:0, w:50, h:18, dir:'down'},
+  ]
+  
+  starObjs = []
+  for(let i=0;i<20;i++) {
+    starObjs.push({x:70 + i*115, y:160 + (i%5)*15 - 30, got:false, angle:0})
+  }
+  
+  healObjs = [
+    {x:200, y:180, got:false}, {x:550, y:160, got:false},
+    {x:900, y:150, got:false}, {x:1250, y:170, got:false},
+    {x:1600, y:155, got:false}, {x:1950, y:165, got:false}, {x:2250, y:180, got:false},
+  ]
+  
+  checkpointObjs = [
+    {x:400, y:218, w:14, h:24, activated:false},
+    {x:900, y:218, w:14, h:24, activated:false},
+    {x:1400, y:218, w:14, h:24, activated:false},
+    {x:1900, y:218, w:14, h:24, activated:false},
+  ]
+  
+  portal = { x: worldW - 120, y: 218, w: 18, h: 38 }
+  
+  enemyObjs = []
+  for(let i=0;i<25;i++) {
+    const types = ['grunt', 'floater', 'kamikaze', 'sniper']
+    const type = types[Math.floor(Math.random() * 4)]
+    const x = 80 + i * 95
+    const y = type==='floater' ? 160 + Math.random()*40 : 226
+    enemyObjs.push({
+      x:x, y:y, w:16, h:16,
+      ox:x, oy:y, range:50 + Math.random()*30, speed:1.5 + Math.random()*0.7,
+      dir:1, dead:false, type:type, baseSpeed:1.5 + Math.random()*0.7,
+      shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0
+    })
+  }
+  
+  pl.x = 50; pl.y = 210
 }
 
-function initBossArena(){
-  currentPhase='phase2'
-  worldW=W; camX=0
-  stopMusic(); startBossMusic()
-  movPlats=[]
-  fixedPlats=BOSS_ARENA_PLATS.map(p=>({...p}))
-  spikeGroups=[
-    {x:-10,y:0,w:18,h:270,dir:'right',wall:true},
-    {x:472,y:0,w:18,h:270,dir:'left',wall:true}
+// FASE 6: CAMINHO PARA O BOSS
+function loadLevel6() {
+  worldW = 2500
+  camX = 0
+  checkpointSpawn = null
+  
+  fixedPlats = [
+    {x:0, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:150, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:280, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:430, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:560, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:720, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:850, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1000, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1130, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1290, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1420, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:1570, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1700, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:1860, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:1990, y:242, w:120, h:28, col:'#1a2a4a'},
+    {x:2140, y:242, w:100, h:28, col:'#1a2a4a'},
+    {x:2270, y:242, w:130, h:28, col:'#1a2a4a'},
+    {x:2430, y:242, w:100, h:28, col:'#1a2a4a'},
   ]
-  starObjs=[]; bullets=[]; bossBullets=[]; enemyBullets=[]
-  checkpointObjs=[]
-  healObjs=[
-    {x:80, y:200, got:false},
-    {x:240, y:110, got:false},
-    {x:400, y:200, got:false}
+  
+  movPlats = [
+    {x:180, y:195, w:40, h:10, ox:180, range:70, axis:'x', spd:1.5, t:0, col:'#1a4030'},
+    {x:450, y:175, w:35, h:10, oy:175, range:55, axis:'y', spd:1.3, t:0.5, col:'#1a4030'},
+    {x:750, y:185, w:40, h:10, ox:750, range:80, axis:'x', spd:1.6, t:1.0, col:'#1a4030'},
+    {x:1050, y:165, w:35, h:10, oy:165, range:60, axis:'y', spd:1.4, t:1.5, col:'#1a4030'},
+    {x:1350, y:180, w:40, h:10, ox:1350, range:75, axis:'x', spd:1.5, t:2.0, col:'#1a4030'},
+    {x:1650, y:170, w:35, h:10, oy:170, range:55, axis:'y', spd:1.3, t:2.5, col:'#1a4030'},
+    {x:1950, y:185, w:40, h:10, ox:1950, range:80, axis:'x', spd:1.6, t:3.0, col:'#1a4030'},
+    {x:2250, y:175, w:35, h:10, oy:175, range:60, axis:'y', spd:1.4, t:3.5, col:'#1a4030'},
   ]
-  // Boss spawna no topo centro
-  boss.x=W/2-BOSS_W/2; boss.y=18
-  boss.hp=BOSS_MAX_HP; boss.alive=true
-  boss.vx=1.2; boss.vy=0
-  boss.shootTimer=80; boss.shootInterval=100
-  boss.hurtTimer=0; boss.phase=1
-  boss.movePattern='patrol'; boss.patternTimer=200; boss.patternCD=0
-  boss.diving=false; boss.slamWarning=false; boss.slamTimer=0
-  boss.shieldTimer=0; boss.teleportFlash=0
-  boss.lastTeleportCD=0; boss.burstCharge=0
-  boss.spinAngle=0; boss.spinTimer=0; boss.spinBursts=0
-  boss.laserWarning=false; boss.laserTimer=0; boss.laserX=0; boss.laserActive=false; boss.laserActiveTimer=0
-  boss.groundY=242-BOSS_H   // Y quando está no chão
-  // Spawn no início da arena e salva como novo checkpoint
-  pl.x=30; pl.y=215
-  checkpointSpawn={x:30, y:215}
-  pl.vx=0; pl.vy=0; pl.face=1; pl.jetting=false
-  particles=[]; damageCD=0
-  state='playing'
+  
+  spikeGroups = [
+    {x:-10, y:0, w:18, h:270, dir:'right', wall:true},
+    {x:worldW, y:0, w:18, h:270, dir:'left', wall:true},
+    {x:80, y:0, w:50, h:18, dir:'down'}, {x:250, y:0, w:50, h:18, dir:'down'},
+    {x:420, y:0, w:50, h:18, dir:'down'}, {x:590, y:0, w:50, h:18, dir:'down'},
+    {x:760, y:0, w:50, h:18, dir:'down'}, {x:930, y:0, w:50, h:18, dir:'down'},
+    {x:1100, y:0, w:50, h:18, dir:'down'}, {x:1270, y:0, w:50, h:18, dir:'down'},
+    {x:1440, y:0, w:50, h:18, dir:'down'}, {x:1610, y:0, w:50, h:18, dir:'down'},
+    {x:1780, y:0, w:50, h:18, dir:'down'}, {x:1950, y:0, w:50, h:18, dir:'down'},
+    {x:2120, y:0, w:50, h:18, dir:'down'}, {x:2290, y:0, w:50, h:18, dir:'down'},
+  ]
+  
+  starObjs = []
+  for(let i=0;i<22;i++) {
+    starObjs.push({x:60 + i*110, y:160 + (i%6)*15 - 40, got:false, angle:0})
+  }
+  
+  healObjs = [
+    {x:150, y:175, got:false}, {x:400, y:155, got:false},
+    {x:700, y:165, got:false}, {x:1000, y:145, got:false},
+    {x:1300, y:160, got:false}, {x:1600, y:150, got:false},
+    {x:1900, y:165, got:false}, {x:2200, y:155, got:false},
+  ]
+  
+  checkpointObjs = [
+    {x:350, y:218, w:14, h:24, activated:false},
+    {x:800, y:218, w:14, h:24, activated:false},
+    {x:1250, y:218, w:14, h:24, activated:false},
+    {x:1700, y:218, w:14, h:24, activated:false},
+    {x:2150, y:218, w:14, h:24, activated:false},
+  ]
+  
+  portal = { x: worldW - 120, y: 218, w: 18, h: 38 }
+  
+  enemyObjs = []
+  for(let i=0;i<30;i++) {
+    const types = ['grunt', 'floater', 'kamikaze', 'sniper']
+    const type = types[Math.floor(Math.random() * 4)]
+    const x = 60 + i * 82
+    const y = type==='floater' ? 150 + Math.random()*50 : 226
+    enemyObjs.push({
+      x:x, y:y, w:16, h:16,
+      ox:x, oy:y, range:55 + Math.random()*35, speed:1.6 + Math.random()*0.8,
+      dir:1, dead:false, type:type, baseSpeed:1.6 + Math.random()*0.8,
+      shootTimer:80, alertTimer:0, charging:false, angle:0, chargeTimer:0, chargeCooldown:0
+    })
+  }
+  
+  pl.x = 50; pl.y = 210
 }
 
-// ── COLISÕES ──
+// Função de carga de nível
+function loadLevel(levelNum) {
+  switch(levelNum) {
+    case 1: loadLevel1(); break
+    case 2: loadLevel2(); break
+    case 3: loadLevel3(); break
+    case 4: loadLevel4(); break
+    case 5: loadLevel5(); break
+    case 6: loadLevel6(); break
+    default: loadLevel1()
+  }
+}
+
+// Tutorial
+function initTutorial() {
+  tutorialSteps = [
+    { msg: "Bem-vindo! → Use A/D para se mover", x: 200, y: 150, triggerX: 80, done: false },
+    { msg: "↑ Pressione SPACE para usar o JETPACK", x: 400, y: 120, triggerX: 300, done: false },
+    { msg: "🔫 Pressione F para ATIRAR!", x: 600, y: 100, triggerX: 550, done: false },
+    { msg: "💚 Pressione H para se CURAR", x: 800, y: 130, triggerX: 750, done: false },
+    { msg: "⭐ Colete ESTRELAS para abrir o portal!", x: 1000, y: 150, triggerX: 950, done: false },
+    { msg: "⚠️ CUIDADO! Espinhos e inimigos causam dano!", x: 1300, y: 120, triggerX: 1250, done: false },
+    { msg: "🚪 Vá até o PORTAL no final!", x: 1600, y: 140, triggerX: 1550, done: false }
+  ]
+  currentTutorialStep = 0
+  tutorialMessageActive = false
+  currentTutorialMessage = null
+  tutorialMessageTimer = 0
+}
+
+function updateTutorial() {
+  if(selectedLevel !== 1) return
+  if(currentTutorialStep >= tutorialSteps.length) return
+  
+  if(tutorialMessageActive) {
+    tutorialMessageTimer--
+    if(tutorialMessageTimer <= 0) {
+      tutorialMessageActive = false
+      currentTutorialMessage = null
+    }
+    return
+  }
+  
+  const step = tutorialSteps[currentTutorialStep]
+  if(!step.done && pl.x >= step.triggerX) {
+    step.done = true
+    currentTutorialMessage = {
+      text: step.msg,
+      x: step.x,
+      y: step.y,
+      timer: 180
+    }
+    tutorialMessageActive = true
+    tutorialMessageTimer = 180
+    currentTutorialStep++
+    sfxCollect()
+  }
+}
+
+function drawTutorialMessages() {
+  if(!tutorialMessageActive || !currentTutorialMessage) return
+  
+  const msg = currentTutorialMessage
+  let screenX = msg.x - camX
+  let screenY = msg.y
+  
+  if(screenX < -50 || screenX > W + 50) return
+  screenX = Math.max(30, Math.min(W - 150, screenX))
+  
+  cx.save()
+  cx.font = 'bold 9px monospace'
+  cx.textAlign = 'center'
+  cx.fillStyle = 'rgba(0,0,0,0.85)'
+  cx.fillRect(screenX-10, screenY-18, 220, 32)
+  cx.fillStyle = '#0f0'
+  cx.strokeStyle = '#0f0'
+  cx.lineWidth = 1.5
+  cx.strokeRect(screenX-10, screenY-18, 220, 32)
+  cx.fillStyle = '#0f0'
+  cx.fillText(msg.text, screenX+100, screenY-2)
+  cx.fillStyle = '#ff0'
+  cx.beginPath()
+  cx.moveTo(screenX+100, screenY+18)
+  cx.lineTo(screenX+92, screenY+10)
+  cx.lineTo(screenX+108, screenY+10)
+  cx.fill()
+  cx.restore()
+}
+
+// ==================== FUNÇÕES PRINCIPAIS ====================
+
 function aabb(a,b){ return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y }
-
 function resolveY(obj,plat){
   if(!aabb(obj,plat))return false
   const oT=(obj.y+obj.h)-plat.y, oB=(plat.y+plat.h)-obj.y
@@ -557,8 +849,7 @@ function resolveX(obj,plat){
   if(obj.vx<0&&oR<oL){ obj.x=plat.x+plat.w; obj.vx=0; return true }
   return false
 }
-function allSolids(){ return currentPhase==='phase1'?[...fixedPlats,...movPlats,crate]:[...fixedPlats,...movPlats] }
-
+function allSolids(){ return [...fixedPlats,...movPlats] }
 function playerBox(){ return {x:pl.x+2,y:pl.y+2,w:pl.w-4,h:pl.h-2} }
 
 function addParticles(x,y,col,n,spd){
@@ -572,7 +863,6 @@ function addJetTrail(){
   particles.push({x:ex+(Math.random()-0.5)*4,y:ey+Math.random()*2,vx:(Math.random()-0.5)*0.8,vy:Math.random()*1.5+0.5,life:14+Math.random()*8,ml:22,r:255,g:120+Math.random()*80|0,b:20})
 }
 
-// ── DANO ──
 function hurt(){
   if(damageCD>0)return
   lives--;damageCD=130;sfxHurt()
@@ -590,7 +880,7 @@ function respawnPlayer(){
   if(checkpointSpawn){
     pl.x=checkpointSpawn.x; pl.y=checkpointSpawn.y
   } else {
-    pl.x=30; pl.y=selectedLevel===6?210:195
+    pl.x=50; pl.y=210
   }
   pl.vx=0;pl.vy=0
 }
@@ -623,33 +913,25 @@ function shoot(){
   bullets.push({x:px-3,y:py-1,vx:dx*6,vy:dy*6,life:75,w:6,h:3})
 }
 
-// ── CÂMERA ──
 function updateCamera(){
   if(worldW<=W){ camX=0; return }
-  // Segue o jogador mantendo-o no terço esquerdo-central da tela
   const targetCamX = pl.x - W*0.35
   camX += (targetCamX - camX) * 0.12
   camX = Math.max(0, Math.min(worldW - W, camX))
 }
 
-// ── UPDATE PLATAFORMAS MÓVEIS ──
 function updateMovPlats(){
   for(const mp of movPlats){
     const ox=mp.x,oy=mp.y
     mp.t+=mp.spd*0.03
     if(mp.axis==='x') mp.x=mp.ox+Math.sin(mp.t)*mp.range/2
     else              mp.y=mp.oy+Math.sin(mp.t)*mp.range/2
-    // Carrega player junto
     if(aabb(pl,mp)){
       const ot=(pl.y+pl.h)-mp.y,ob=(mp.y+mp.h)-pl.y
       if(ot<ob&&pl.vy>=-0.5){
         if(mp.axis==='x')pl.x+=mp.x-ox
         if(mp.axis==='y')pl.y+=mp.y-oy
       }
-    }
-    if(currentPhase==='phase1'&&aabb(crate,mp)){
-      const ot=(crate.y+crate.h)-mp.y,ob=(mp.y+mp.h)-crate.y
-      if(ot<ob){ if(mp.axis==='x')crate.x+=mp.x-ox; if(mp.axis==='y')crate.y+=mp.y-oy }
     }
   }
 }
@@ -665,7 +947,6 @@ function updateEnemies(){
     e.angle += 0.04
 
     if(e.type==='grunt'){
-      // Patrulha X. Se player próximo, acelera e fica alerta
       const alertRange=90
       if(distToPlayer<alertRange){ e.alertTimer=40; e.speed=e.baseSpeed*2.2 }
       else if(e.alertTimer>0){ e.alertTimer--; e.speed=e.baseSpeed*1.4 }
@@ -674,13 +955,10 @@ function updateEnemies(){
       if(e.x < e.ox-e.range || e.x > e.ox+e.range){ e.dir*=-1; e.x=Math.max(e.ox-e.range,Math.min(e.ox+e.range,e.x)) }
 
     } else if(e.type==='floater'){
-      // Patrulha Y. Deriva levemente em direção ao X do player. Atira periodicamente.
       e.y += e.speed * e.dir
       if(e.y < e.oy-e.range || e.y > e.oy+e.range){ e.dir*=-1 }
-      // Deriva horizontal lenta
       if(Math.abs(dx)>20){ e.x += dx>0?0.25:-0.25 }
       e.x = Math.max(e.ox-60, Math.min(e.ox+60, e.x))
-      // Tiro
       e.shootTimer--
       if(e.shootTimer<=0 && distToPlayer<160){
         e.shootTimer = 110+Math.random()*60|0
@@ -690,24 +968,19 @@ function updateEnemies(){
       }
 
     } else if(e.type==='kamikaze'){
-      // Fica parado até player entrar no range, aí carga em linha reta
       if(e.chargeCooldown>0){ e.chargeCooldown--; e.charging=false }
       if(e.charging){
-        // Continua a carga
         e.x += e.chargeVx; e.y += e.chargeVy
         e.chargeTimer--
-        // Para se sair do range ou bater em algo
         if(e.chargeTimer<=0 || e.x<-30 || e.x>worldW+30 || e.y<-30 || e.y>H+30){
           e.charging=false; e.chargeCooldown=90
           e.x=Math.max(e.ox-e.range,Math.min(e.ox+e.range,e.x))
           e.y=e.oy
         }
       } else {
-        // Patrulha pequena e espera
         e.x += e.baseSpeed * e.dir * 0.5
         if(e.x < e.ox-e.range || e.x > e.ox+e.range){ e.dir*=-1 }
         if(distToPlayer<100 && e.chargeCooldown===0){
-          // Carrega!
           e.charging=true; e.chargeTimer=35
           const nd=Math.hypot(dx,dy)||1
           e.chargeVx=dx/nd*3.8; e.chargeVy=dy/nd*3.8
@@ -716,14 +989,12 @@ function updateEnemies(){
       }
 
     } else if(e.type==='sniper'){
-      // Fica parado, mira no player, atira
       e.shootTimer--
       if(e.shootTimer<=0){
         e.shootTimer = 130+Math.random()*40|0
         const spd=2.5, nd=distToPlayer||1
         enemyBullets.push({x:eCx-3,y:eCy-3,vx:dx/nd*spd,vy:dy/nd*spd,life:150,w:6,h:6,sniper:true})
         beep(600,'square',0.04,0.12,400)
-        // Tiro de aviso (efeito carga)
         addParticles(eCx,eCy,[255,160,0],8,0.5)
       }
     }
@@ -739,54 +1010,45 @@ function updateEnemyBullets(){
   enemyBullets=enemyBullets.filter(b=>b.life>0)
 }
 
-// ── UPDATE CRATE ──
-function updateCrate(){
-  crate.vy+=GRAV;crate.vy=Math.min(crate.vy,8);crate.vx*=0.85
-  crate.x+=crate.vx;crate.y+=crate.vy
-  const cs=[...fixedPlats,...movPlats]
-  for(const p of cs)resolveY(crate,p)
-  for(const p of cs)resolveX(crate,p)
-  crate.x=Math.max(8,Math.min(worldW-crate.w-8,crate.x))
-  if(crate.y>H){crate.y=270;crate.vy=0}
-}
-
-// ── UPDATE BOSS ──
 function updateBoss(){
   if(!boss.alive)return
-  const hpR=boss.hp/BOSS_MAX_HP
-  // Transições de fase
+  if(boss.collisionCooldown>0) boss.collisionCooldown--
+  
+  const hpR=boss.hp/bossMaxHP
+  const shootBase = difficulty==='really-hard'?55 : difficulty==='hard'?70 : 100
+  
   if(hpR<=0.65&&boss.phase===1){
-    boss.phase=2; boss.shootInterval=75
+    boss.phase=2; boss.shootInterval=Math.round(shootBase*0.75)
     addParticles(boss.x+boss.w/2,boss.y+boss.h/2,[255,100,0],30,1.4)
     healObjs.push({x:120,y:200,got:false})
   }
-  if(hpR<=0.3&&boss.phase===2){
-    boss.phase=3; boss.shootInterval=45
+  if(hpR<=0.35&&boss.phase===2){
+    boss.phase=3; boss.shootInterval=Math.round(shootBase*0.45)
     addParticles(boss.x+boss.w/2,boss.y+boss.h/2,[255,20,0],40,1.8)
     healObjs.push({x:360,y:200,got:false})
+  }
+  if(hpR<=0.15&&boss.phase===3){
+    boss.phase=4; boss.shootInterval=Math.round(shootBase*0.25)
+    addParticles(boss.x+boss.w/2,boss.y+boss.h/2,[255,0,200],50,2.2)
+    beep(80,'sawtooth',0.4,0.5,40); beep(800,'square',0.12,0.3,200)
   }
   if(boss.hurtTimer>0)boss.hurtTimer--
   if(boss.teleportFlash>0)boss.teleportFlash--
   if(boss.patternCD>0)boss.patternCD--
   if(boss.lastTeleportCD>0)boss.lastTeleportCD--
 
-  // ── PADRÃO: ESCUDO (boss invulnerável brevemente na fase 2+) ──
   if(boss.shieldTimer>0){ boss.shieldTimer--; return }
 
-  // ── SELECIONA PRÓXIMO PADRÃO ──
   if(boss.patternCD===0&&boss.patternTimer<=0){
     boss.patternCD = boss.phase>=3?70:100
     boss.patternTimer=0
-    // Escolhe padrão aleatório com pesos por fase
     const roll=Math.random()
     if(boss.phase===1){
-      // Fase 1: patrol, dive e spin básico
       if(roll<0.45)        boss.movePattern='patrol'
       else if(roll<0.75)   boss.movePattern='dive'
       else                 boss.movePattern='spin'
       boss.patternTimer = boss.movePattern==='patrol' ? 180 : boss.movePattern==='spin' ? 60 : 90
     } else if(boss.phase===2){
-      // Fase 2: patrol, dive, slam, shield, laser
       if(roll<0.25)        boss.movePattern='patrol'
       else if(roll<0.45)   boss.movePattern='dive'
       else if(roll<0.62)   boss.movePattern='slam'
@@ -794,8 +1056,7 @@ function updateBoss(){
       else if(roll<0.88)   boss.movePattern='spin'
       else                 { boss.movePattern='shield'; boss.shieldTimer=55 }
       boss.patternTimer = 110
-    } else {
-      // Fase 3: tudo incluso, mais agressivo
+    } else if(boss.phase===3){
       if(roll<0.15)        boss.movePattern='patrol'
       else if(roll<0.32)   boss.movePattern='dive'
       else if(roll<0.46)   boss.movePattern='slam'
@@ -805,10 +1066,18 @@ function updateBoss(){
       else if(boss.lastTeleportCD===0){ boss.movePattern='teleport'; boss.lastTeleportCD=240 }
       else                 { boss.movePattern='shield'; boss.shieldTimer=40 }
       boss.patternTimer=90
+    } else {
+      boss.patternCD=30
+      if(roll<0.20)        boss.movePattern='collapse-chase'
+      else if(roll<0.40)   boss.movePattern='spin'
+      else if(roll<0.58)   boss.movePattern='laser'
+      else if(roll<0.72)   boss.movePattern='burst'
+      else if(roll<0.86)   { boss.movePattern='slam' }
+      else if(boss.lastTeleportCD===0){ boss.movePattern='teleport'; boss.lastTeleportCD=180 }
+      else                 boss.movePattern='dive'
+      boss.patternTimer=70
     }
-    // Prepara o padrão
     if(boss.movePattern==='dive'){
-      // Alvo: um pouco na frente do jogador
       boss.diveTarget={x:pl.x+pl.w/2-boss.w/2, y:pl.y+pl.h/2}
       boss.diving=true
       boss.slamWarning=false
@@ -819,7 +1088,6 @@ function updateBoss(){
     if(boss.movePattern==='teleport'){
       sfxTeleport()
       boss.teleportFlash=24
-      // Teleporta para o lado mais distante do player
       const leftTarget = 40
       const rightTarget = W - boss.w - 40
       boss.x = pl.x < W/2 ? rightTarget : leftTarget
@@ -848,14 +1116,12 @@ function updateBoss(){
   }
   boss.patternTimer--
 
-  // ── EXECUTA PADRÃO ──
   switch(boss.movePattern){
     case 'patrol':{
       const spd=boss.phase>=3?2.2:boss.phase===2?1.8:1.2
       boss.x+=boss.vx>0?spd:-spd
       if(boss.x<20)          {boss.x=20;boss.vx=1}
       if(boss.x>W-boss.w-20) {boss.x=W-boss.w-20;boss.vx=-1}
-      // Gravidade suave no patrol
       boss.vy+=0.02; boss.y+=boss.vy
       if(boss.y<10){boss.y=10;boss.vy=0}
       if(boss.y>80){boss.y=80;boss.vy=-0.5}
@@ -868,7 +1134,6 @@ function updateBoss(){
         const dist=Math.sqrt(dx*dx+dy*dy)||1
         const spd=boss.phase>=3?5.2:boss.phase===2?4.3:3.5
         boss.x+=dx/dist*spd; boss.y+=dy/dist*spd
-        // Chegou perto → volta pro topo
         if(dist<10){
           boss.diving=false; boss.y=20
           boss.vy=-1.5
@@ -882,7 +1147,6 @@ function updateBoss(){
     }
     case 'slam':{
       if(boss.slamWarning){
-        // Aviso piscando, depois mergulha reto para baixo
         boss.slamTimer--
         if(boss.slamTimer<=0){
           boss.slamWarning=false
@@ -893,10 +1157,10 @@ function updateBoss(){
         if(boss.y>=boss.groundY){
           boss.y=boss.groundY; boss.vy=0
           sfxSlam()
-          // Onde tocou gera onda de impacto
           addParticles(boss.x+boss.w/2,boss.groundY+boss.h/2,[255,80,0],35,2.0)
-          // Dano por onda de choque (3 tiles ao redor)
-          if(damageCD===0&&Math.abs((pl.x+pl.w/2)-(boss.x+boss.w/2))<80&&pl.y+pl.h>=220){hurt()}
+          if(damageCD===0 && Math.abs((pl.x+pl.w/2)-(boss.x+boss.w/2))<70 && pl.y+pl.h>=220){
+            hurt()
+          }
           boss.patternTimer=80; boss.movePattern='patrol'; boss.patternCD=50
         }
       }
@@ -924,7 +1188,6 @@ function updateBoss(){
       break
     }
     case 'spin':{
-      // Boss flutua no centro e dispara projéteis em espiral
       boss.x += (W/2-boss.w/2 - boss.x)*0.08
       boss.y += (40 - boss.y)*0.08
       boss.spinTimer++
@@ -945,18 +1208,15 @@ function updateBoss(){
       break
     }
     case 'laser':{
-      // Boss flutua parado, warning vermelho, depois raio vertical instantâneo
       boss.x += (W/2-boss.w/2 - boss.x)*0.06
       boss.y += (20 - boss.y)*0.06
       if(boss.laserWarning){
         boss.laserTimer--
-        // Mira rastreando player durante warning
         boss.laserX += (pl.x+pl.w/2 - boss.laserX)*0.04
         if(boss.laserTimer<=0){
           boss.laserWarning=false
           boss.laserActive=true; boss.laserActiveTimer=22
           sfxSlam()
-          // Dano se player estiver na coluna
           if(damageCD===0&&Math.abs((pl.x+pl.w/2)-boss.laserX)<14) hurt()
           addParticles(boss.laserX,boss.groundY,[255,60,0],30,1.8)
         }
@@ -968,26 +1228,30 @@ function updateBoss(){
       }
       break
     }
-    case 'teleport':{
-      // Após teleporte, dispara uma barragem mais previsível e volta a patrulhar
-      const leftTarget = 40
-      const rightTarget = W - boss.w - 40
-      boss.x = pl.x < W/2 ? rightTarget : leftTarget
-      if(Math.abs(boss.x - pl.x) < 80) boss.x = boss.x===leftTarget ? rightTarget : leftTarget
-      boss.y = 30
-      sfxTeleport()
-      boss.teleportFlash=24
-      const bx=boss.x+boss.w/2, by=boss.y+boss.h
-      const spd=boss.phase>=3?3.2:boss.phase===2?2.6:2.0
-      for(const ang of [-0.9,-0.45,0.45,0.9]){
-        bossBullets.push({x:bx-3,y:by,vx:Math.sin(ang)*spd,vy:Math.cos(ang)*spd,life:120,w:7,h:7})
+    case 'collapse-chase':{
+      const tx=pl.x+pl.w/2-boss.w/2, ty=pl.y-boss.h-4
+      boss.x+=(tx-boss.x)*0.055; boss.y+=(ty-boss.y)*0.055
+      boss.patternTimer--
+      if(boss.patternTimer<=0){boss.movePattern='patrol';boss.patternTimer=50;boss.patternCD=20}
+      boss.shootTimer--
+      if(boss.shootTimer<=0){
+        boss.shootTimer=14
+        sfxBossShoot()
+        const bx=boss.x+boss.w/2,by=boss.y+boss.h/2
+        for(let i=0;i<3;i++){
+          const a=(frameN*0.18)+(i/3)*Math.PI*2
+          bossBullets.push({x:bx-3,y:by-3,vx:Math.cos(a)*3.2,vy:Math.sin(a)*3.2,life:120,w:7,h:7})
+        }
       }
-      boss.movePattern='patrol'; boss.patternTimer=120
+      break
+    }
+    case 'teleport':{
+      boss.movePattern='patrol'
+      boss.patternTimer=120
       break
     }
   }
 
-  // ── TIROS AUTOMÁTICOS ──
   boss.shootTimer--
   if(boss.shootTimer<=0&&boss.movePattern!=='slam'&&!boss.slamWarning){
     boss.shootTimer=boss.shootInterval
@@ -996,21 +1260,17 @@ function updateBoss(){
     const dx=(pl.x+pl.w/2)-bx, dy=(pl.y+pl.h/2)-by
     const dist=Math.sqrt(dx*dx+dy*dy)||1
     const spd=boss.phase>=3?3.8:boss.phase===2?3.0:2.2
-    // Tiro principal
     bossBullets.push({x:bx-3,y:by,vx:dx/dist*spd,vy:dy/dist*spd,life:140,w:7,h:7})
     if(boss.phase>=2){
-      // Leque de 3
       bossBullets.push({x:bx-3,y:by,vx:dx/dist*spd-1.4,vy:dy/dist*spd,life:140,w:7,h:7})
       bossBullets.push({x:bx-3,y:by,vx:dx/dist*spd+1.4,vy:dy/dist*spd,life:140,w:7,h:7})
     }
     if(boss.phase>=3){
-      // Extra reto para baixo
       bossBullets.push({x:bx-3,y:by,vx:0,vy:spd*1.1,life:140,w:7,h:7})
     }
   }
 }
 
-// ── UPDATE BULLETS ──
 function updateBullets(){
   if(shootCD>0)shootCD--
   if(shootOverheat>0){
@@ -1035,7 +1295,9 @@ function updateBullets(){
       if(boss.hp<=0){
         boss.alive=false; sfxBossDead(); stopBossMusic()
         addParticles(boss.x+boss.w/2,boss.y+boss.h/2,[255,200,50],80,2.5)
-        score+=200; setTimeout(()=>{state='win';sfxWin()},900)
+        score+=500; 
+        saveHighscore(99, score);
+        setTimeout(()=>{state='win';sfxWin()},900)
       }
     }
   }
@@ -1052,24 +1314,112 @@ function updateBossBullets(){
   bossBullets=bossBullets.filter(b=>b.life>0)
 }
 
-// ── UPDATE PLAYER ──
+function initGame(){
+  if(selectedCharacter==='cassidy'){
+    charJetForce=JETFORCE*1.15; charWalkSpeed=WALKSPEED*1.12; charMaxSpeedUp=MAXSPEEDUP*1.1
+  } else {
+    charJetForce=JETFORCE; charWalkSpeed=WALKSPEED; charMaxSpeedUp=MAXSPEEDUP
+  }
+  
+  if(difficulty==='hard'){      bossMaxHP=40 }
+  else if(difficulty==='really-hard'){ bossMaxHP=70 }
+  else {                        bossMaxHP=20 }
+
+  lives=3; score=0; frameN=0; damageCD=0; jetCD=0; deathTimer=0
+  jetHeat=0; jetExploded=false; jetExplodeTimer=0
+  healItems=1; healCD=0; shootCD=0; shootAmmo=SHOOT_AMMO_MAX; shootOverheat=0
+  bullets=[]; bossBullets=[]; enemyBullets=[]; particles=[]
+  enemyObjs=[]
+  checkpointSpawn=null
+  boss.alive=false
+  currentPhase='phase1'
+  
+  if(selectedGameMode === 'bossfight' && bossFightUnlocked) {
+    initBossArena()
+  } else {
+    loadLevel(selectedLevel)
+  }
+  
+  state='playing'
+  startMusic()
+  if(AC.state==='suspended')AC.resume()
+}
+
+function initBossArena(){
+  currentPhase='phase2'
+  worldW=W; camX=0
+  stopMusic(); startBossMusic()
+  movPlats=[]
+  fixedPlats=[
+    {x:0,   y:242,w:480,h:28,col:'#3a1a0a'},
+    {x:20,  y:185,w:80, h:12,col:'#3a2a0a'},
+    {x:380, y:185,w:80, h:12,col:'#3a2a0a'},
+    {x:160, y:158,w:70, h:10,col:'#3a2a0a'},
+    {x:250, y:158,w:70, h:10,col:'#3a2a0a'},
+    {x:80,  y:118,w:60, h:10,col:'#3a2a0a'},
+    {x:340, y:118,w:60, h:10,col:'#3a2a0a'},
+    {x:200, y:90, w:80, h:10,col:'#3a2a0a'},
+  ]
+  spikeGroups=[
+    {x:-10,y:0,w:18,h:270,dir:'right',wall:true},
+    {x:472,y:0,w:18,h:270,dir:'left',wall:true}
+  ]
+  starObjs=[]; bullets=[]; bossBullets=[]; enemyBullets=[]
+  checkpointObjs=[]
+  healObjs=[
+    {x:80, y:200, got:false},
+    {x:240, y:110, got:false},
+    {x:400, y:200, got:false}
+  ]
+  boss.x=W/2-BOSS_W/2; boss.y=18
+  boss.hp=bossMaxHP; boss.alive=true
+  boss.vx=1.2; boss.vy=0
+  boss.shootTimer=80; boss.shootInterval=100
+  boss.hurtTimer=0; boss.phase=1
+  boss.movePattern='patrol'; boss.patternTimer=200; boss.patternCD=0
+  boss.diving=false; boss.slamWarning=false; boss.slamTimer=0
+  boss.shieldTimer=0; boss.teleportFlash=0
+  boss.lastTeleportCD=0; boss.burstCharge=0
+  boss.spinAngle=0; boss.spinTimer=0; boss.spinBursts=0
+  boss.laserWarning=false; boss.laserTimer=0; boss.laserX=0; boss.laserActive=false; boss.laserActiveTimer=0
+  boss.groundY=242-BOSS_H
+  boss.collisionCooldown=0
+  pl.x=30; pl.y=215
+  checkpointSpawn={x:30, y:215}
+  pl.vx=0; pl.vy=0; pl.face=1; pl.jetting=false
+  particles=[]; damageCD=0; jetHeat=0; jetExploded=false; jetExplodeTimer=0
+  state='playing'
+}
+
 function updatePlayer(){
   if(damageCD>0)damageCD--
   if(jetCD>0)jetCD--
   if(healCD>0)healCD--
 
   const jettingNow = held('Space')
-  if(jettingNow){
+  if(difficulty==='really-hard'){
+    if(!jettingNow){ jetHeat=Math.max(0,jetHeat-1.4) }
+    if(jetExplodeTimer>0){ jetExplodeTimer--; if(jetExplodeTimer===0)jetExploded=false }
+  }
+  if(jettingNow && !jetExploded){
     pl.vy-=charJetForce; pl.vy=Math.max(pl.vy,charMaxSpeedUp)
     pl.jetting=true; addJetTrail()
     if(jetCD===0){sfxJet();jetCD=10}
+    if(difficulty==='really-hard'){
+      jetHeat+=2.2
+      if(jetHeat>=JET_HEAT_MAX){
+        jetExploded=true; jetExplodeTimer=180; jetHeat=JET_HEAT_MAX
+        beep(80,'sawtooth',0.35,0.5,30); beep(400,'square',0.1,0.2,60)
+        addParticles(pl.x+pl.w/2,pl.y+pl.h,[255,140,0],30,1.6)
+        hurt()
+      }
+    }
   } else {
     pl.jetting=false
   }
   pl.vy+=GRAV * (pl.jetting ? 0.35 : 1)
   pl.vy=Math.min(pl.vy,MAXSPEEDDOWN)
 
-  // Movimento horizontal — mais responsivo na fase boss
   const friction = currentPhase==='phase2' ? 0.7 : FRICTION
   if(held('KeyA')||held('ArrowLeft'))       {pl.vx-=WALK_ACCEL;pl.face=-1}
   else if(held('KeyD')||held('ArrowRight')) {pl.vx+=WALK_ACCEL;pl.face=1}
@@ -1081,22 +1431,11 @@ function updatePlayer(){
 
   pl.x+=pl.vx; pl.y+=pl.vy
 
-  // Crate
-  if(currentPhase==='phase1'&&selectedLevel!==6){
-    const ce={x:crate.x-1,y:crate.y-1,w:crate.w+2,h:crate.h+2}
-    if(aabb(pl,ce)){
-      const dist=(pl.x+pl.w/2)-(crate.x+crate.w/2)
-      if(Math.abs(dist)>5&&pl.y+pl.h>crate.y+4)crate.vx=dist<0?0.2:-0.2
-    }
-  }
-
-  // Colisões
   const solids=allSolids()
   for(const s of solids)resolveY(pl,s)
   for(const s of solids)resolveX(pl,s)
   for(const s of solids)if(aabb(pl,s))resolveY(pl,s)
 
-  // Push-out fino
   let cL=false,cR=false,cT=false,cB=false,sq=0
   for(const s of solids){
     if(aabb(pl,s)){
@@ -1110,7 +1449,6 @@ function updatePlayer(){
   }
   if(damageCD===0&&sq>=2&&((cL&&cR)||(cT&&cB))){hurt();return}
 
-  // Espinhos
   if(damageCD===0){
     for(const sg of spikeGroups){
       const hb=sg.wall?{x:sg.x,y:sg.y,w:sg.w,h:sg.h}:{x:sg.x,y:sg.y,w:sg.w,h:sg.h+14}
@@ -1121,17 +1459,21 @@ function updatePlayer(){
     }
   }
 
-  // Limites do mundo
   pl.x=Math.max(8,Math.min(worldW-pl.w-8,pl.x))
 
-  // Queda
   if(pl.y+pl.h>H+20){hurt();respawnPlayer();pl.vy=-1;return}
 
-  // Boss: contato direto
-  if(currentPhase==='phase2'&&boss.alive&&damageCD===0&&aabb(playerBox(),boss)){hurt();return}
+  if(currentPhase==='phase2'&&boss.alive&&damageCD===0&&boss.collisionCooldown===0&&aabb(playerBox(),boss)){
+    hurt()
+    boss.collisionCooldown = 30
+    return
+  }
 
-  // FASE 1 normal: coletar, checkpoint, portal
   if(currentPhase==='phase1'){
+    if(selectedLevel === 1) {
+      updateTutorial()
+    }
+    
     for(const s of starObjs){
       if(!s.got&&aabb(pl,{x:s.x-7,y:s.y-7,w:14,h:14})){
         s.got=true;score+=10;sfxCollect()
@@ -1144,7 +1486,6 @@ function updatePlayer(){
         addParticles(h.x,h.y,[80,255,120],24,1.2)
       }
     }
-    // Checkpoints (fase 6)
     for(const cp of checkpointObjs){
       if(!cp.activated&&aabb(pl,cp)){
         cp.activated=true
@@ -1153,13 +1494,23 @@ function updatePlayer(){
         addParticles(cp.x+7,cp.y+12,[80,200,255],25,0.9)
       }
     }
-    // Portal
     const sg=starObjs.filter(s=>s.got).length
     if(sg===starObjs.length&&aabb(pl,portal)){
       state='transition'
       addParticles(pl.x+pl.w/2,pl.y+pl.h/2,[80,220,255],25,1.2)
-      if(selectedLevel===6){
-        setTimeout(()=>initBossArena(),600)
+      saveHighscore(selectedLevel, score)
+      
+      if(selectedLevel < 6) {
+        unlockLevel(selectedLevel+1)
+      }
+      
+      if(selectedLevel === 6) {
+        unlockBossFight()
+        sfxWin()
+        score += 100
+        setTimeout(()=>{ 
+          state='win'
+        }, 600)
       } else {
         sfxWin(); score+=50
         setTimeout(()=>{ state='win' },400)
@@ -1181,57 +1532,20 @@ function updateParticles(){
   particles=particles.filter(p=>p.life>0)
 }
 
-// ── GAME LOOP ──
-function update(){
-  frameN++
-  if(state==='character-select'){
-    stopMenuMusic()
-    if(held('KeyA')||held('ArrowLeft'))selectedCharacter='dave'
-    else if(held('KeyD')||held('ArrowRight'))selectedCharacter='cassidy'
-    if(pressed('Space')||pressed('Enter'))state='menu'
-    clearJust();return
-  }
-  if(state==='menu'){
-    initAudioElements()
-    if(menuAudioElem.paused)startMenuMusic()
-    if(pressed('Space')||pressed('Enter')){startMenuJingle();stopMenuMusic();state='level-select'}
-    if(pressed('KeyA')||pressed('ArrowLeft')||pressed('KeyD')||pressed('ArrowRight'))startMenuJingle()
-    clearJust();return
-  }
-  if(state==='level-select'){
-    if(pressed('KeyA')||pressed('ArrowLeft'))selectedLevel=Math.max(1,selectedLevel-1)
-    if(pressed('KeyD')||pressed('ArrowRight'))selectedLevel=Math.min(6,selectedLevel+1)
-    if(pressed('Space')||pressed('Enter')){initGame();if(AC.state==='suspended')AC.resume()}
-    clearJust();return
-  }
-  if(state==='transition'){updateParticles();clearJust();return}
-  if(state==='dying'){
-    deathTimer--;updateParticles()
-    if(deathTimer<=0)state='dead'
-    if(pressed('Space')||pressed('Enter')){stopMusic();stopBossMusic();state='character-select';clearJust();return}
-    clearJust();return
-  }
-  if(state==='dead'||state==='win'){
-    updateParticles()
-    if(pressed('Space')||pressed('Enter')){stopMusic();stopBossMusic();state='character-select'}
-    clearJust();return
-  }
-  updateMovPlats()
-  updateEnemies()
-  if(currentPhase==='phase1')updateEnemyBullets()
-  if(currentPhase==='phase1'&&selectedLevel!==6)updateCrate()
-  updatePlayer()
-  updateBullets()
-  if(currentPhase==='phase2'){updateBoss();updateBossBullets()}
-  updateParticles()
-  for(const s of starObjs)s.angle+=0.04
-  updateCamera()
-  clearJust()
-}
+// ==================== DRAW FUNCTIONS ====================
 
-// ════════════════════════════════════════════════
-// DRAW
-// ════════════════════════════════════════════════
+const nebulas1=Array.from({length:20},()=>({x:Math.random()*2400,y:Math.random()*270,rx:Math.random()*80+40,ry:Math.random()*45+25,col:Math.random()>0.5?[40,20,100]:[10,30,100],a:Math.random()*0.15+0.05}))
+const nebulas2=Array.from({length:10},()=>({x:Math.random()*480,y:Math.random()*270,rx:Math.random()*60+30,ry:Math.random()*35+20,col:[120+Math.random()*40|0,Math.random()*30|0,Math.random()*20|0],a:Math.random()*0.22+0.06}))
+const bgStarsArr=Array.from({length:200},()=>({x:Math.random()*2400,y:Math.random()*270,s:Math.random()*1.5+0.3,ph:Math.random()*Math.PI*2,sp:Math.random()*0.03+0.01}))
+
+function drawBgStars(){
+  for(const s of bgStarsArr){
+    const sx=worldW>W?((s.x - camX*0.3 + 2400) % 2400):s.x
+    const bri=0.35+0.35*Math.sin(frameN*s.sp+s.ph)
+    cx.fillStyle=`rgba(190,210,255,${bri})`
+    cx.fillRect(sx|0,s.y|0,s.s|0||1,s.s|0||1)
+  }
+}
 
 function drawNebulas(){
   const nbs=currentPhase==='phase2'?nebulas2:nebulas1
@@ -1248,18 +1562,7 @@ function drawNebulas(){
   cx.restore()
 }
 
-function drawBgStars(){
-  for(const s of bgStarsArr){
-    // Parallax leve: estrelas movem mais devagar que o mundo
-    const sx=worldW>W?((s.x - camX*0.3 + 1600) % 1600):s.x
-    const bri=0.35+0.35*Math.sin(frameN*s.sp+s.ph)
-    cx.fillStyle=`rgba(190,210,255,${bri})`
-    cx.fillRect(sx|0,s.y|0,s.s|0||1,s.s|0||1)
-  }
-}
-
 function drawTileBlock(x,y,w,h,base,acc,lit){
-  // Converte para espaço de tela
   const sx=x-camX
   if(sx+w<0||sx>W)return
   cx.fillStyle=base||'#1a2a4a';cx.fillRect(sx,y,w,h)
@@ -1304,14 +1607,6 @@ function drawSpikes(sg){
   }
 }
 
-function drawCrate(){
-  const sx=crate.x-camX
-  cx.fillStyle='#6b4423';cx.fillRect(sx|0,crate.y|0,crate.w,crate.h)
-  cx.fillStyle='#8b5e35';cx.fillRect(sx|0,crate.y|0,crate.w,2);cx.fillRect(sx|0,crate.y|0,2,crate.h)
-  cx.fillStyle='#a07040';cx.fillRect((sx+5)|0,(crate.y+3)|0,6,6)
-  cx.fillStyle='rgba(0,0,0,0.3)';cx.fillRect((sx+crate.w-2)|0,crate.y|0,2,crate.h)
-}
-
 function drawStar(s){
   if(s.got)return
   const sx=s.x-camX
@@ -1352,105 +1647,78 @@ function drawEnemies(){
     cx.translate(sx+e.w/2, sy+e.h/2)
 
     if(e.type==='grunt'){
-      // Robô terrestre: corpo quadrado, antena, roda/trilho
       const alert=e.alertTimer>0
       const pulse=alert?1+Math.sin(frameN*0.4)*0.08:1
       cx.scale(pulse,pulse)
-      // Trilho/rodas
       cx.fillStyle='#555566'; cx.fillRect(-7,4,14,5)
       for(let i=-5;i<=5;i+=4){ cx.fillStyle='#888899'; cx.fillRect(i,5,2,4) }
-      // Corpo
       cx.fillStyle=alert?'#ff3322':'#cc4433'
       cx.fillRect(-6,-5,12,9)
-      // Brilho no topo do corpo
       cx.fillStyle='rgba(255,180,160,0.35)'; cx.fillRect(-6,-5,12,3)
-      // Visor/olho
       cx.fillStyle=alert?'#ffff00':'#ff8800'
       cx.fillRect(-4,-3,8,4)
       cx.fillStyle='rgba(0,0,0,0.5)'; cx.fillRect(-4,-3,1,4); cx.fillRect(3,-3,1,4)
-      // Antena
       cx.fillStyle='#cc4433'; cx.fillRect(-1,-9,2,4)
       cx.fillStyle=alert?'#ffff00':'#ff6644'
       cx.beginPath(); cx.arc(0,-10,2,0,Math.PI*2); cx.fill()
-      // Glow de alerta
       if(alert){ cx.shadowColor='#ff4400'; cx.shadowBlur=8; cx.fillStyle='rgba(0,0,0,0)'; cx.fillRect(-7,-10,14,20) }
-
     } else if(e.type==='floater'){
-      // Olho flutuante com tentáculos
       const bob=Math.sin(frameN*0.1+e.ox)*2
       cx.translate(0, bob)
       const anim=Math.sin(frameN*0.18+e.oy)
-      // Tentáculos
       cx.strokeStyle='#8844cc'; cx.lineWidth=1.5
       for(let i=0;i<4;i++){
         const ta=((i/4)*Math.PI*2)+frameN*0.06
         const tx=Math.cos(ta)*5, ty=Math.sin(ta)*4+3
         cx.beginPath(); cx.moveTo(tx*0.4,4); cx.quadraticCurveTo(tx,ty+2,tx,ty+6); cx.stroke()
       }
-      // Corpo esférico
       const grd=cx.createRadialGradient(-2,-2,1,0,0,7)
       grd.addColorStop(0,'#cc88ff'); grd.addColorStop(1,'#6611aa')
       cx.fillStyle=grd; cx.beginPath(); cx.arc(0,0,7,0,Math.PI*2); cx.fill()
-      // Pupila
       cx.fillStyle='#220033'; cx.beginPath(); cx.ellipse(1,0,3,4,anim*0.2,0,Math.PI*2); cx.fill()
       cx.fillStyle='#ffffff'; cx.beginPath(); cx.arc(2,-1,1.2,0,Math.PI*2); cx.fill()
-      // Glow
       cx.shadowColor='#aa44ff'; cx.shadowBlur=10
       cx.strokeStyle='rgba(180,100,255,0.4)'; cx.lineWidth=1; cx.beginPath(); cx.arc(0,0,8,0,Math.PI*2); cx.stroke()
-
     } else if(e.type==='kamikaze'){
-      // Foguete suicida: apontado para o player
       const charging=e.charging
       cx.rotate(e.charging ? Math.atan2(e.chargeVy,e.chargeVx) : Math.PI/2)
-      // Chama traseira
       if(charging){
         cx.fillStyle='#ffaa00'
         cx.beginPath(); cx.moveTo(-3,5); cx.lineTo(0,12+Math.random()*4); cx.lineTo(3,5); cx.closePath(); cx.fill()
         cx.fillStyle='#ffffff'
         cx.beginPath(); cx.moveTo(-1.5,5); cx.lineTo(0,9); cx.lineTo(1.5,5); cx.closePath(); cx.fill()
       }
-      // Corpo
       cx.fillStyle=charging?'#ff4400':'#ff8822'
       cx.beginPath(); cx.moveTo(0,-8); cx.lineTo(5,6); cx.lineTo(-5,6); cx.closePath(); cx.fill()
-      // Ponteiro (bico)
       cx.fillStyle='#ffcc44'
       cx.beginPath(); cx.moveTo(0,-8); cx.lineTo(2,-4); cx.lineTo(-2,-4); cx.closePath(); cx.fill()
-      // Aletas
       cx.fillStyle='#cc3300'
       cx.beginPath(); cx.moveTo(-5,4); cx.lineTo(-9,8); cx.lineTo(-3,8); cx.closePath(); cx.fill()
       cx.beginPath(); cx.moveTo(5,4); cx.lineTo(9,8); cx.lineTo(3,8); cx.closePath(); cx.fill()
-      // Ojo vermelho no centro
       cx.fillStyle=charging?'#ffffff':'#ffff00'
       cx.beginPath(); cx.arc(0,0,2.5,0,Math.PI*2); cx.fill()
       if(charging){ cx.shadowColor='#ff6600'; cx.shadowBlur=12; cx.fillStyle='rgba(0,0,0,0)'; cx.fillRect(-10,-10,20,20) }
-
     } else if(e.type==='sniper'){
-      // Drone estacionário com canhão apontado pro player
       const plCx=pl.x+pl.w/2, plCy=pl.y+pl.h/2
       const ang=Math.atan2(plCy-(e.y+e.h/2), plCx-(e.x+e.w/2))
       const readyToShoot=e.shootTimer<25
-      // Plataforma/base
       cx.fillStyle='#334455'
       cx.fillRect(-7,-3,14,6)
       cx.fillStyle='#445566'; cx.fillRect(-7,-3,14,2)
-      // Corpo redondo
       const grd2=cx.createRadialGradient(-1,-1,1,0,0,6)
       grd2.addColorStop(0,'#5588bb'); grd2.addColorStop(1,'#223344')
       cx.fillStyle=grd2; cx.beginPath(); cx.arc(0,-1,6,0,Math.PI*2); cx.fill()
-      // Canhão giratório
       cx.save(); cx.rotate(ang)
       cx.fillStyle=readyToShoot?'#ffcc00':'#667788'
       cx.fillRect(0,-2,10,4)
       cx.fillStyle=readyToShoot?'#ffff88':'#99aacc'
       cx.fillRect(0,-1.5,9,1)
       cx.restore()
-      // Visor
       cx.fillStyle=readyToShoot?'#ffff00':'#00ccff'
       cx.beginPath(); cx.arc(0,-1,3,0,Math.PI*2); cx.fill()
       cx.fillStyle='rgba(0,0,0,0.5)'; cx.beginPath(); cx.arc(1,-2,1.2,0,Math.PI*2); cx.fill()
       if(readyToShoot){ cx.shadowColor='#ffff00'; cx.shadowBlur=10; cx.fillStyle='rgba(0,0,0,0)'; cx.fillRect(-8,-8,16,16) }
     }
-
     cx.shadowBlur=0
     cx.restore()
   }
@@ -1499,16 +1767,13 @@ function drawPortal(){
   cx.fillText(active?'EXIT':'LOCK',sx+portal.w/2,portal.y-4)
 }
 
-// ── CHECKPOINTS ──
 function drawCheckpoints(){
   for(const cp of checkpointObjs){
     const sx=cp.x-camX
     if(sx<-30||sx>W+30)continue
     const glow=cp.activated?0.8+0.2*Math.sin(frameN*0.1):0.4
-    // Poste
     cx.fillStyle=cp.activated?'#00ccff':'#556677'
     cx.fillRect(sx+6,cp.y+10,2,14)
-    // Bandeira
     cx.fillStyle=cp.activated?`rgba(0,220,255,${glow})`:'#334455'
     cx.beginPath();cx.moveTo(sx+8,cp.y+10);cx.lineTo(sx+18,cp.y+15);cx.lineTo(sx+8,cp.y+20);cx.closePath();cx.fill()
     if(cp.activated){
@@ -1520,15 +1785,13 @@ function drawCheckpoints(){
   }
 }
 
-// ── BOSS ──
 function drawBoss(){
   if(!boss.alive)return
-  if(boss.teleportFlash>0&&Math.floor(boss.teleportFlash/3)%2===0)return // pisca no teleporte
+  if(boss.teleportFlash>0&&Math.floor(boss.teleportFlash/3)%2===0)return
   const bx=boss.x|0, by=boss.y|0
   const ishurt=boss.hurtTimer>0
   const isShield=boss.shieldTimer>0
 
-  // ── LASER WARNING: linha vermelha do boss ao chão ──
   if(boss.laserWarning){
     const pulse=0.4+0.6*Math.abs(Math.sin(frameN*0.4))
     const lx=boss.laserX|0
@@ -1537,11 +1800,9 @@ function drawBoss(){
     cx.beginPath(); cx.moveTo(lx,by+boss.h); cx.lineTo(lx,boss.groundY+boss.h); cx.stroke()
     cx.setLineDash([])
     cx.lineWidth=1
-    // Mirinha no chão
     cx.fillStyle=`rgba(255,80,0,${pulse})`
     cx.fillRect(lx-8,boss.groundY+boss.h-2,16,4)
   }
-  // ── LASER ATIVO: raio cheio ──
   if(boss.laserActive){
     const lx=boss.laserX|0
     const a=boss.laserActiveTimer/22
@@ -1554,7 +1815,6 @@ function drawBoss(){
     cx.shadowBlur=0
   }
 
-  // ── SPIN: anel de energia girando ──
   if(boss.movePattern==='spin'){
     const sa=boss.spinAngle+frameN*0.12
     const rc=boss.phase>=3?'rgba(255,80,0,0.45)':'rgba(200,50,255,0.35)'
@@ -1563,52 +1823,43 @@ function drawBoss(){
     cx.beginPath(); cx.arc(bx+boss.w/2,by+boss.h/2,20,-sa,-sa+Math.PI); cx.stroke()
   }
 
-  // Aviso de slam
   if(boss.slamWarning){
     const warnA=0.4+0.4*Math.sin(frameN*0.5)
     cx.fillStyle=`rgba(255,50,0,${warnA})`
     cx.fillRect(bx-4,by-4,boss.w+8,boss.h+8)
-    // Linha vermelha no chão (mira)
     cx.strokeStyle=`rgba(255,0,0,${warnA})`
     cx.lineWidth=2;cx.setLineDash([4,3])
     cx.beginPath();cx.moveTo(bx+boss.w/2,by+boss.h);cx.lineTo(bx+boss.w/2,boss.groundY+boss.h);cx.stroke()
     cx.setLineDash([])
   }
-  // Escudo
   if(isShield){
     const sa=0.5+0.3*Math.sin(frameN*0.2)
     cx.strokeStyle=`rgba(100,200,255,${sa})`
     cx.lineWidth=3;cx.beginPath();cx.arc(bx+boss.w/2,by+boss.h/2,boss.w*0.75,0,Math.PI*2);cx.stroke()
     cx.lineWidth=1
   }
-  // Corpo
-  const bodyCol=ishurt?'#ffffff':isShield?'#88aaff':boss.phase===3?'#ff1100':boss.phase===2?'#ff6600':'#cc2244'
+  const bodyCol=ishurt?'#ffffff':isShield?'#88aaff':boss.phase===4?'#ff00ff':boss.phase===3?'#ff1100':boss.phase===2?'#ff6600':'#cc2244'
   cx.fillStyle=bodyCol;cx.fillRect(bx+4,by+10,boss.w-8,boss.h-10)
-  // Cabeça
-  cx.fillStyle=ishurt?'#ffaaaa':isShield?'#aaccff':'#aa1133'
+  cx.fillStyle=ishurt?'#ffaaaa':isShield?'#aaccff':boss.phase===4?'#cc00cc':'#aa1133'
   cx.fillRect(bx+8,by+2,boss.w-16,12)
-  // Olhos
   cx.fillStyle='#ff4400'
   cx.fillRect(bx+10,by+5,5,5);cx.fillRect(bx+boss.w-15,by+5,5,5)
   cx.fillStyle='#ffffff';cx.fillRect(bx+12,by+7,2,2);cx.fillRect(bx+boss.w-13,by+7,2,2)
-  // Núcleo pulsante
-  const hpR=boss.hp/BOSS_MAX_HP
+  const hpR=boss.hp/bossMaxHP
   const cf=0.5+Math.sin(frameN*0.18)*0.3+(1-hpR)*0.4
   cx.fillStyle=`rgba(255,${60+hpR*120|0},20,${cf})`
   cx.beginPath();cx.arc(bx+boss.w/2,by+boss.h/2+4,8,0,Math.PI*2);cx.fill()
-  // Antenas - giram no spin
   const antRot=boss.movePattern==='spin'?boss.spinAngle:0
   cx.save(); cx.translate(bx+boss.w/2,by+2); cx.rotate(antRot*0.5)
   cx.fillStyle=ishurt?'#fff':'#ff4422'
   cx.fillRect(-boss.w/2+5,-6,3,9);cx.fillRect(boss.w/2-8,-6,3,9)
   cx.restore()
-  // Asas
   const wf=Math.sin(frameN*0.28)*5
-  cx.fillStyle=isShield?'rgba(80,160,255,0.6)':boss.movePattern==='spin'?'rgba(200,100,255,0.7)':'rgba(200,40,80,0.6)'
+  cx.fillStyle=isShield?'rgba(80,160,255,0.6)':boss.movePattern==='spin'?'rgba(200,100,255,0.7)':boss.phase===4?'rgba(255,0,200,0.7)':'rgba(200,40,80,0.6)'
   cx.beginPath();cx.moveTo(bx,by+12);cx.lineTo(bx-14,by+12+wf);cx.lineTo(bx-4,by+24);cx.closePath();cx.fill()
   cx.beginPath();cx.moveTo(bx+boss.w,by+12);cx.lineTo(bx+boss.w+14,by+12+wf);cx.lineTo(bx+boss.w+4,by+24);cx.closePath();cx.fill()
-  cx.shadowColor=boss.phase>=2?'rgba(255,20,60,0.9)':'rgba(255,20,60,0.5)'
-  cx.shadowBlur=boss.phase>=3?18:boss.phase===2?12:6
+  cx.shadowColor=boss.phase===4?'rgba(255,0,255,1)':boss.phase>=2?'rgba(255,20,60,0.9)':'rgba(255,20,60,0.5)'
+  cx.shadowBlur=boss.phase===4?24:boss.phase>=3?18:boss.phase===2?12:6
   cx.fillStyle='rgba(0,0,0,0)';cx.fillRect(bx,by,boss.w,boss.h);cx.shadowBlur=0
 }
 
@@ -1632,7 +1883,6 @@ function drawBossBullets(){
   }
 }
 
-// ── PLAYER: pixel art ──
 const DAVE_BODY=[[0,0,2,2,2,2,0,0],[0,2,2,3,3,2,2,0],[0,2,3,4,4,3,2,0],[0,2,2,2,2,2,2,0],[0,0,2,2,2,2,0,0]]
 const DAVE_HEAD=[[0,1,1,1,1,1,0],[1,1,5,5,1,1,1],[1,1,5,6,1,1,1],[0,1,1,1,1,1,0]]
 const DAVE_HELMET=[[0,7,7,7,7,7,0],[7,7,7,7,7,7,7]]
@@ -1687,13 +1937,10 @@ function drawParticles(){
   cx.globalAlpha=1
 }
 
-// ── HUD ──
 function drawHUD(){
   cx.font='7px monospace';cx.textAlign='left'
-  // Vidas
   cx.fillStyle='rgba(4,6,20,0.8)';cx.fillRect(4,4,54,13)
   for(let i=0;i<3;i++){cx.fillStyle=i<lives?'#ee3333':'#2a1525';cx.fillText('♥',8+i*16,14)}
-  // Cura
   cx.fillStyle='rgba(4,6,20,0.8)';cx.fillRect(4,20,60,13)
   cx.fillStyle=healItems>0?'#44ff88':'#1a3a1a'
   cx.fillText(`[H]♥ x${healItems}`,8,30)
@@ -1701,7 +1948,6 @@ function drawHUD(){
   cx.fillStyle=shootOverheat>0?'#ff6666':'#88ccff'
   cx.font='6px monospace';cx.fillText(shootOverheat>0?`SOBRECARGA ${Math.ceil(shootOverheat/60)}s`:`TIROS ${shootAmmo}/${SHOOT_AMMO_MAX}`,8,46)
   cx.font='7px monospace';
-  // Centro
   cx.fillStyle='rgba(4,6,20,0.75)';cx.fillRect(W/2-45,4,90,13)
   cx.textAlign='center'
   if(currentPhase==='phase1'){
@@ -1709,30 +1955,49 @@ function drawHUD(){
     cx.fillStyle=sg===starObjs.length?'#00ff88':'#ffee44'
     cx.fillText(`★ ${sg}/${starObjs.length}  +${score}`,W/2,14)
   } else {
-    cx.fillStyle='#ff4444';cx.fillText(`BOSS  ${score}pts`,W/2,14)
+    cx.fillStyle='#ff4444';cx.fillText(`BOSS FIGHT  ${score}pts`,W/2,14)
   }
-  // Barra boss
   if(currentPhase==='phase2'&&boss.alive){
     const bw=200,bh=10,bx=(W-bw)/2,by=H-20
     cx.fillStyle='rgba(4,6,20,0.85)';cx.fillRect(bx-4,by-15,bw+8,bh+20)
     cx.font='6px monospace';cx.textAlign='center';cx.fillStyle='#ff4444'
-    const pname=['','NORMAL','ENRAIVECIDO!','FRENESI!!!']
+    const pname=['','NORMAL','ENRAIVECIDO!','FRENESI!!!','COLAPSO!!!']
     cx.fillText(`BOSS  [${pname[boss.phase]}]  ${boss.movePattern.toUpperCase()}`,W/2,by-5)
     cx.fillStyle='#1a0a0a';cx.fillRect(bx,by,bw,bh)
-    const hpR=boss.hp/BOSS_MAX_HP
-    const bc=boss.shieldTimer>0?'#88aaff':boss.phase===3?'#ff1100':boss.phase===2?'#ff6600':'#cc2244'
+    const hpR=boss.hp/bossMaxHP
+    const bc=boss.shieldTimer>0?'#88aaff':boss.phase===4?'#ff00ff':boss.phase===3?'#ff1100':boss.phase===2?'#ff6600':'#cc2244'
     cx.fillStyle=bc;cx.fillRect(bx,by,(bw*hpR)|0,bh)
     const sh=Math.sin(frameN*0.15)*0.15+0.15
     cx.fillStyle=`rgba(255,150,100,${sh})`;cx.fillRect(bx,by,(bw*hpR)|0,bh/2)
     cx.strokeStyle='#660000';cx.lineWidth=1;cx.strokeRect(bx,by,bw,bh)
     cx.fillStyle='#ffaaaa';cx.font='5px monospace';cx.textAlign='center'
-    cx.fillText(`${boss.hp} / ${BOSS_MAX_HP}`,W/2,by+bh+6)
+    cx.fillText(`${boss.hp} / ${bossMaxHP}`,W/2,by+bh+6)
     if(boss.shieldTimer>0){cx.fillStyle='#88aaff';cx.fillText('ESCUDO ATIVO!',W/2-80,by+bh/2+2)}
   }
-  // Score
+  if(difficulty==='really-hard'){
+    const hbw=40, hbh=6, hbx=4, hby=52
+    cx.fillStyle='rgba(4,6,20,0.85)'; cx.fillRect(hbx-1,hby-1,hbw+2,hbh+9)
+    cx.font='4px monospace'; cx.textAlign='left'
+    const overheat=jetHeat/JET_HEAT_MAX
+    const hcol=overheat>0.8?'#ff2200':overheat>0.5?'#ff8800':'#ffcc00'
+    cx.fillStyle='#332200'; cx.fillRect(hbx,hby,hbw,hbh)
+    cx.fillStyle=hcol; cx.fillRect(hbx,hby,(hbw*overheat)|0,hbh)
+    if(jetExploded){
+      const blink=Math.floor(frameN/5)%2
+      cx.fillStyle=blink?'#ff0000':'#ff8800'
+      cx.fillText('JET! EXPLODIU!',hbx,hby+hbh+6)
+    } else {
+      cx.fillStyle=overheat>0.8?'#ff4400':'#886600'
+      cx.fillText(overheat>0.8?'CALOR CRITICO':'JET HEAT',hbx,hby+hbh+6)
+    }
+  }
   cx.fillStyle='rgba(4,6,20,0.75)';cx.fillRect(W-64,4,60,13)
   cx.fillStyle='#88aaff';cx.textAlign='right';cx.fillText(`PTS ${score}`,W-6,14)
-  // Dica fase 1
+  const dcol=difficulty==='really-hard'?'#ff00cc':difficulty==='hard'?'#ff6600':'#44cc44'
+  const dlbl=difficulty==='really-hard'?'S.HARD':difficulty==='hard'?'HARD':'NORMAL'
+  cx.fillStyle='rgba(4,6,20,0.75)';cx.fillRect(W-50,18,46,10)
+  cx.fillStyle=dcol;cx.font='5px monospace';cx.textAlign='right'
+  cx.fillText(dlbl,W-6,26)
   if(currentPhase==='phase1'){
     const sg=starObjs.filter(s=>s.got).length
     if(sg<starObjs.length){
@@ -1741,19 +2006,16 @@ function drawHUD(){
       cx.fillText(`Colete ${starObjs.length-sg} estrela(s) p/ sair!`,W/2,H-10)
     }
   }
-  // Controles fase boss
   if(currentPhase==='phase2'){
     cx.fillStyle='rgba(4,6,20,0.6)';cx.fillRect(4,H-18,142,14)
     cx.fillStyle='#6688aa';cx.font='5px monospace';cx.textAlign='left'
     cx.fillText('F=ATIRAR  H=CURAR  SPACE=JETPACK',8,H-8)
   }
-  // Barra de scroll (fase 6)
   if(currentPhase==='phase1'&&worldW>W){
     const prog=pl.x/worldW
     const bw=100
     cx.fillStyle='rgba(4,6,20,0.6)';cx.fillRect(W/2-bw/2,H-12,bw,6)
     cx.fillStyle='#00ccff';cx.fillRect(W/2-bw/2,H-12,(bw*prog)|0,6)
-    // Marca do checkpoint
     for(const cp of checkpointObjs){
       const cx2=W/2-bw/2+(bw*cp.x/worldW)|0
       cx.fillStyle=cp.activated?'#00ccff':'#335566';cx.fillRect(cx2,H-14,2,10)
@@ -1781,7 +2043,7 @@ function drawTransition(){
   cx.fillStyle='#ffffff';cx.shadowColor='#ff4400';cx.shadowBlur=16
   cx.fillText('FASE CONCLUÍDA!',W/2,108);cx.shadowBlur=0
   cx.font='8px monospace';cx.fillStyle='#ffccaa'
-  cx.fillText(selectedLevel===6?'ADENTRANDO A ARENA DO BOSS...':'PRÓXIMA FASE!',W/2,128)
+  cx.fillText(selectedLevel===6?'BOSS FIGHT DESBLOQUEADO!':'PRÓXIMA FASE!',W/2,128)
   cx.restore()
 }
 
@@ -1813,7 +2075,7 @@ function drawMenuScreen(){
   cx.font='8px monospace';cx.fillText('[ SPACE ] PARA JOGAR',W/2,145);cx.shadowBlur=0
   cx.fillStyle='#445566';cx.font='6px monospace'
   cx.fillText('A/D=MOVER  SPACE=JETPACK  F=ATIRAR  H=CURAR',W/2,165)
-  cx.fillText('FASES 1-5 NORMAIS  |  FASE 6 = SCROLL + BOSS',W/2,177)
+  cx.fillText('TODAS AS FASES COM SCROLL HORIZONTAL!',W/2,177)
   cx.restore()
 }
 
@@ -1822,6 +2084,19 @@ function drawLevelSelect(){
   cx.save();cx.font='bold 18px monospace';cx.textAlign='center'
   cx.fillStyle='#00ff88';cx.shadowColor='#00ff88';cx.shadowBlur=12
   cx.fillText('ESCOLHA A FASE',W/2,32);cx.shadowBlur=0
+  
+  bossFightUnlocked = getBossUnlocked()
+  
+  if(bossFightUnlocked) {
+    cx.fillStyle = selectedGameMode === 'bossfight' ? '#ff00aa' : '#660066'
+    cx.fillRect(W/2-80, 220, 160, 30)
+    cx.strokeStyle = '#ff00aa'
+    cx.strokeRect(W/2-80, 220, 160, 30)
+    cx.fillStyle = '#ffffff'
+    cx.font = 'bold 8px monospace'
+    cx.fillText('⚔️ BOSS FIGHT ⚔️', W/2, 240)
+  }
+  
   const configs=[
     {col:{bgA:'#1a3a2a',bgI:'#0a1a0a',borA:'#00ff88',borI:'#004422',tx:'#88ff88',st:'#88dd88'}},
     {col:{bgA:'#3a2a1a',bgI:'#1a1a0a',borA:'#ffff00',borI:'#666600',tx:'#ffff88',st:'#ffdd88'}},
@@ -1830,32 +2105,68 @@ function drawLevelSelect(){
     {col:{bgA:'#1a2a3a',bgI:'#0a1a1a',borA:'#00ffff',borI:'#004466',tx:'#88ffff',st:'#88dddd'}},
     {col:{bgA:'#2a1a3a',bgI:'#180a28',borA:'#ff44ff',borI:'#660066',tx:'#ff88ff',st:'#ff66ff'}},
   ]
+  const unlocked=getUnlocked()
   for(let i=1;i<=6;i++){
     const c=configs[i-1].col
     const x=15+(i-1)*75, y=60, cs=65
-    const sel=selectedLevel===i
-    cx.fillStyle=sel?c.bgA:c.bgI;cx.fillRect(x,y,cs,cs)
-    cx.strokeStyle=sel?c.borA:c.borI;cx.lineWidth=2;cx.strokeRect(x,y,cs,cs)
-    cx.fillStyle=c.tx;cx.font='bold 9px monospace';cx.textAlign='center'
-    cx.fillText(`FASE ${i}`,x+cs/2,y+14)
-    const ld=i===6?LEVEL6:(LEVELS[i]||LEVELS[1])
-    cx.font='5px monospace';cx.fillStyle=c.st
-    const words=ld.desc.split(' ');let line=0
-    for(const w of words){if(line<2){cx.fillText(w,x+cs/2,y+23+line*8);line++}}
-    if(i===6){
-      cx.fillStyle='#ff88ff';cx.font='5px monospace'
-      cx.fillText('↔ SCROLL',x+cs/2,y+55)
-      cx.fillText('+ BOSS',x+cs/2,y+62)
+    const sel=selectedLevel===i && selectedGameMode !== 'bossfight'
+    const isLocked=!unlocked.includes(i)
+    cx.fillStyle=isLocked?'#0a0a12':sel?c.bgA:c.bgI;cx.fillRect(x,y,cs,cs)
+    cx.strokeStyle=isLocked?'#222233':sel?c.borA:c.borI;cx.lineWidth=2;cx.strokeRect(x,y,cs,cs)
+    if(isLocked){
+      cx.fillStyle='#334455'; cx.font='bold 20px monospace'; cx.textAlign='center'
+      cx.fillText('🔒',x+cs/2,y+cs/2+4)
+      cx.font='5px monospace'; cx.fillStyle='#224433'
+      cx.fillText(`FASE ${i}`,x+cs/2,y+14)
     } else {
+      cx.fillStyle=c.tx;cx.font='bold 9px monospace';cx.textAlign='center'
+      cx.fillText(`FASE ${i}`,x+cs/2,y+14)
+      const hs=getHighscore(i)
+      if(hs>0){ cx.font='4px monospace'; cx.fillStyle='#ffcc44'; cx.fillText(`★${hs}`,x+cs/2,y+38) }
       cx.font='bold 6px monospace';cx.fillStyle=c.st
       cx.fillText('★'.repeat(Math.min(4,i))+'☆'.repeat(4-Math.min(4,i)),x+cs/2,y+56)
     }
   }
   const blink=Math.floor(frameN/22)%2
   cx.fillStyle=blink?'#ffffff':'#445566';cx.font='6px monospace';cx.textAlign='center'
-  cx.fillText('A/D p/ selecionar  ·  SPACE p/ começar',W/2,152)
-  cx.fillStyle='#ffaa44';cx.font='bold 6px monospace'
-  cx.fillText('FASE 6: NÍVEL LONGO COM SCROLL → ARENA DO BOSS',W/2,166)
+  cx.fillText('A/D p/ selecionar fase  ·  SPACE p/ começar',W/2,152)
+  if(bossFightUnlocked) {
+    cx.fillStyle='#ffaa44'
+    cx.fillText('Aperte B para entrar no BOSS FIGHT!',W/2,210)
+  }
+  cx.fillStyle='#88ffaa';cx.font='bold 6px monospace'
+  cx.fillText('FASES MANUAIS COM DESIGN BULLET HELL!',W/2,266)
+  cx.restore()
+}
+
+function drawDifficultySelect(){
+  cx.fillStyle='rgba(4,6,22,0.92)';cx.fillRect(0,0,W,H)
+  cx.save();cx.textAlign='center'
+  cx.font='bold 16px monospace';cx.fillStyle='#ffcc44';cx.shadowColor='#ffaa00';cx.shadowBlur=12
+  cx.fillText('DIFICULDADE',W/2,40);cx.shadowBlur=0
+
+  const opts=[
+    {id:'normal',   label:'NORMAL',    sub:'3 vidas · inimigos lentos · boss 20HP',     col:'#44ee88', bg:'#0a2a12', brd:'#226633'},
+    {id:'hard',     label:'HARD',      sub:'3 vidas · inimigos +45% · boss 40HP',       col:'#ff8800', bg:'#2a1600', brd:'#883300'},
+    {id:'really-hard',label:'SUPER HARD',sub:'3 vidas · inimigos +90% · boss 70HP\n⚠ Jetpack EXPLODE ao superaquecer', col:'#ff00cc', bg:'#2a0020', brd:'#880066'},
+  ]
+  opts.forEach((o,i)=>{
+    const y=70+i*60, h=50, x=40, w=W-80
+    const sel=difficulty===o.id
+    cx.fillStyle=sel?o.bg:'#08090f'; cx.fillRect(x,y,w,h)
+    cx.strokeStyle=sel?o.col:o.brd; cx.lineWidth=sel?2:1; cx.strokeRect(x,y,w,h)
+    if(sel){ cx.fillStyle=o.col+'22'; cx.fillRect(x,y,w,h) }
+    cx.font='bold 10px monospace'; cx.fillStyle=sel?o.col:'#666688'
+    cx.fillText(o.label,W/2,y+16)
+    cx.font='5px monospace'; cx.fillStyle=sel?'#ccccdd':'#445566'
+    const lines=o.sub.split('\n')
+    lines.forEach((l,li)=>cx.fillText(l,W/2,y+28+li*9))
+    if(sel){ cx.font='7px monospace'; cx.fillStyle=o.col; cx.fillText('◀ ▶',W/2,y+h-6) }
+  })
+
+  const blink=Math.floor(frameN/22)%2
+  cx.font='7px monospace'; cx.fillStyle=blink?'#ffffff':'#445566'
+  cx.fillText('A/D p/ escolher · SPACE p/ confirmar',W/2,258)
   cx.restore()
 }
 
@@ -1890,13 +2201,100 @@ function drawCharacterSelect(){
   cx.restore()
 }
 
-// ── DRAW PRINCIPAL ──
+function update(){
+  frameN++
+  if(state==='character-select'){
+    stopMenuMusic()
+    if(held('KeyA')||held('ArrowLeft'))selectedCharacter='dave'
+    else if(held('KeyD')||held('ArrowRight'))selectedCharacter='cassidy'
+    if(pressed('Space')||pressed('Enter'))state='menu'
+    clearJust();return
+  }
+  if(state==='difficulty-select'){
+    if(pressed('KeyA')||pressed('ArrowLeft')){
+      if(difficulty==='really-hard')difficulty='hard'
+      else if(difficulty==='hard')difficulty='normal'
+    }
+    if(pressed('KeyD')||pressed('ArrowRight')){
+      if(difficulty==='normal')difficulty='hard'
+      else if(difficulty==='hard')difficulty='really-hard'
+    }
+    if(pressed('Space')||pressed('Enter')){ state='level-select' }
+    clearJust();return
+  }
+  if(state==='menu'){
+    initAudioElements()
+    if(menuAudioElem.paused)startMenuMusic()
+    if(pressed('Space')||pressed('Enter')){startMenuJingle();stopMenuMusic();state='difficulty-select'}
+    if(pressed('KeyA')||pressed('ArrowLeft')||pressed('KeyD')||pressed('ArrowRight'))startMenuJingle()
+    clearJust();return
+  }
+  if(state==='level-select'){
+    bossFightUnlocked = getBossUnlocked()
+    const unlocked=getUnlocked()
+    
+    if(pressed('KeyA')||pressed('ArrowLeft')) {
+      if(selectedGameMode === 'bossfight') {
+        selectedGameMode = 'level'
+        selectedLevel = Math.min(6, selectedLevel)
+      } else {
+        selectedLevel=Math.max(1,selectedLevel-1)
+      }
+    }
+    if(pressed('KeyD')||pressed('ArrowRight')) {
+      if(selectedGameMode === 'bossfight') {
+        selectedGameMode = 'level'
+        selectedLevel = Math.min(6, selectedLevel)
+      } else {
+        selectedLevel=Math.min(6,selectedLevel+1)
+      }
+    }
+    if(pressed('KeyB') && bossFightUnlocked) {
+      selectedGameMode = 'bossfight'
+    }
+    if(pressed('Space')||pressed('Enter')){
+      if(selectedGameMode === 'bossfight' && bossFightUnlocked) {
+        initGame()
+        if(AC.state==='suspended')AC.resume()
+      } else if(unlocked.includes(selectedLevel)) {
+        selectedGameMode = 'level'
+        initGame()
+        if(AC.state==='suspended')AC.resume()
+      }
+    }
+    clearJust();return
+  }
+  if(state==='transition'){updateParticles();clearJust();return}
+  if(state==='dying'){
+    deathTimer--;updateParticles()
+    if(deathTimer<=0)state='dead'
+    if(pressed('Space')||pressed('Enter')){stopMusic();stopBossMusic();state='character-select';clearJust();return}
+    clearJust();return
+  }
+  if(state==='dead'||state==='win'){
+    updateParticles()
+    if(pressed('Space')||pressed('Enter')){stopMusic();stopBossMusic();state='character-select'}
+    clearJust();return
+  }
+  updateMovPlats()
+  updateEnemies()
+  if(currentPhase==='phase1')updateEnemyBullets()
+  updatePlayer()
+  updateBullets()
+  if(currentPhase==='phase2'){updateBoss();updateBossBullets()}
+  updateParticles()
+  for(const s of starObjs)s.angle+=0.04
+  updateCamera()
+  clearJust()
+}
+
 function draw(){
   const isArena=currentPhase==='phase2'
   cx.fillStyle=isArena?'#120303':'#07091f';cx.fillRect(0,0,W,H)
   drawBgStars()
   drawNebulas()
   if(state==='character-select'){drawCharacterSelect();return}
+  if(state==='difficulty-select'){drawDifficultySelect();return}
   if(state==='menu'){drawMenuScreen();return}
   if(state==='level-select'){drawLevelSelect();return}
   if(state==='transition'){drawTransition();drawParticles();return}
@@ -1905,13 +2303,13 @@ function draw(){
   for(const fp of fixedPlats)drawTileBlock(fp.x,fp.y,fp.w,fp.h,fp.col||'#1a2a4a','#243560','#2d4580')
   for(const mp of movPlats)drawMovingPlat(mp)
   if(currentPhase==='phase1'){
-    if(selectedLevel!==6)drawCrate()
     for(const s of starObjs)drawStar(s)
     drawHealItems()
     drawEnemies()
     drawEnemyBullets()
     drawPortal()
     drawCheckpoints()
+    drawTutorialMessages()
   }
   drawBoss()
   drawBossBullets()
@@ -1929,7 +2327,13 @@ function draw(){
     drawOverlay('GAME OVER','#ff4444',`PONTUAÇÃO: ${score} pts`,msg,'#ff2222')
   }
   if(state==='win'){
-    drawOverlay('YOU WIN!','#ffee44',`PONTUAÇÃO FINAL: ${score} pts`,'BOSS DERROTADO! PARABÉNS!','#ffdd00')
+    if(selectedGameMode === 'bossfight') {
+      drawOverlay('VITÓRIA!','#ffee44',`PONTUAÇÃO FINAL: ${score} pts`,'BOSS DERROTADO! PARABÉNS!','#ffdd00')
+    } else if(selectedLevel === 6) {
+      drawOverlay('FASE CONCLUÍDA!','#00ff88',`PONTUAÇÃO: ${score} pts`,'BOSS FIGHT DESBLOQUEADO!','#00ff88')
+    } else {
+      drawOverlay('FASE CONCLUÍDA!','#00ff88',`PONTUAÇÃO: ${score} pts`,'PRÓXIMA FASE DESBLOQUEADA!','#00ff88')
+    }
   }
 }
 
